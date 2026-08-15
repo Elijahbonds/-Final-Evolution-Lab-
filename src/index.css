@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-clinical: #050505;
+    --neon-cyan: #00F2FF;
+    --voltage-purple: #7000FF;
+    --glass-bg: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.08);
+  }
+
+  body {
+    @apply bg-[#050505] text-white selection:bg-[#00F2FF]/30;
+    font-family: 'Inter', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, .font-orbitron {
+    font-family: 'Orbitron', sans-serif;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  }
+  
+  .glass-card {
+    @apply bg-gradient-to-br from-white/10 to-transparent backdrop-blur-2xl border border-white/10 rounded-3xl;
+  }
+
+  .neon-text {
+    text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+  }
+
+  .voltage-glow {
+    box-shadow: 0 0 30px rgba(112, 0, 255, 0.2);
+  }
+
+  /* --- Cel-Shaded Anime Visual Identity & Unreal-Canvas Environment --- */
+  .unreal-canvas {
+    position: relative;
+    background-color: #030712;
+    border: 2px solid #09132f;
+    box-shadow: 
+      0 0 0 1px #050b18,
+      0 20px 50px -10px rgba(0, 242, 255, 0.15),
+      inset 0 0 40px rgba(9, 19, 47, 0.8);
+    border-radius: 1.5rem;
+    overflow: hidden;
+  }
+
+  /* Dark-Blue Ink Outline Accents */
+  .ink-outline-box {
+    border: 2px solid #09132f;
+    box-shadow: 0 4px 0 0 #050b18;
+  }
+
+  /* Hard Shadow Terminator Effects (stepped 2-tone & 3-tone shading) */
+  .hard-shadow-terminator {
+    filter: drop-shadow(4px 4px 0px #09132f) drop-shadow(-2px -2px 0px #040916);
+  }
+
+  /* Saturated Rim Lighting Glows */
+  .rim-light-cyan {
+    box-shadow: 
+      0 0 0 2px #09132f,
+      0 0 20px rgba(0, 242, 255, 0.4),
+      inset 0 0 15px rgba(0, 242, 255, 0.2);
+  }
+
+  .rim-light-gold {
+    box-shadow: 
+      0 0 0 2px #09132f,
+      0 0 20px rgba(255, 215, 0, 0.45),
+      inset 0 0 15px rgba(255, 215, 0, 0.25);
+  }
+
+  .rim-light-purple {
+    box-shadow: 
+      0 0 0 2px #09132f,
+      0 0 25px rgba(112, 0, 255, 0.5),
+      inset 0 0 15px rgba(112, 0, 255, 0.3);
+  }
+
+  /* Manga Speed Lines Overlay */
+  .speed-lines-burst {
+    background: repeating-conic-gradient(
+      from 0deg,
+      rgba(255, 255, 255, 0.08) 0deg 2deg,
+      transparent 2deg 15deg
+    );
+  }
+
+  /* Japanese/Anime Onomatopoeia Badge */
+  .manga-sfx-badge {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #FFFFFF;
+    background: #09132f;
+    border: 2px solid #00F2FF;
+    box-shadow: 3px 3px 0px #000000, 0 0 15px rgba(0, 242, 255, 0.4);
+    transform: skew(-8deg);
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+::-webkit-scrollbar-thumb {
+  background: #1a1a1a;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00F2FF;
+}

@@ -1,0 +1,25 @@
+# Final Evolution — Web Deployment (Netlify/Vercel)
+
+## 1. Build Command
+`npm run build`
+
+## 2. Output Directory
+`dist/`
+
+## 3. Security Headers (COOP/COEP)
+The `/play/` route requires the following headers for WebGPU/WASM:
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Embedder-Policy: require-corp`
+
+## 4. PWA Manifest
+Ensure `public/manifest.json` is correctly linked in `index.html`.
+
+## 5. Supabase Integration
+- `FEL_SUPABASE_URL`: Production URL
+- `FEL_SUPABASE_ANON_KEY`: Production Key
+- `STRIPE_WEBHOOK_SECRET`: Managed via Supabase Vault.
+
+## 6. Wix Relay
+Wix orders are relayed via `wix-velo-events.js` to the Supabase Edge Function `felRelayWixOrder`.
+- Endpoint: `https://YOUR_SUPABASE_PROJECT_URL.supabase.co/functions/v1/felRelayWixOrder`
+- Secret: `X_FEL_WIX_SECRET` (managed in Supabase).

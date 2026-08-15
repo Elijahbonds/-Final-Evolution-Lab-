@@ -1,0 +1,55 @@
+import { getSecret } from 'wix-secrets-backend';
+import { fetch } from 'wix-fetch';
+
+/**
+ * Relays Wix Store 'Order Paid' events to the Supabase Edge Function.
+ * @param {Object} order - The Wix Order object.
+ * @param {string} supabaseUserId - The Supabase User ID from metadata.
+ * @param {string} athleteId - The Athlete ID from metadata.
+ * @param {number} shardDelta - The calculated number of shards to credit.
+ */
+export async function relayOrderToSupabase(order, supabaseUserId, athleteId, shardDelta) {
+    const wixSecret = await getSecret('X-FEL-Wix-Secret');
+    const supabaseUrl = 'https://YOUR_SUPABASE_PROJECT.functions.supabase.co/wix-order-completed';
+
+    const payload = {
+        order_id: order._id,
+        number: order.number,
+        total: order.totals.total,
+        currency: order.currency,
+        supabase_user_id: supabaseUserId,
+        athlete_id: athleteId,
+        shard_delta: shardDelta,
+        line_items: order.lineItems.map(item => ({
+            id: item.productId,
+            name: item.name,
+            sku: item.sku,
+            quantity: item.quantity,
+            price: item.price
+        }))
+    };
+
+    try {
+        const response = await fetch(supabaseUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-FEL-Wix-Secret': wixSecret
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Supabase Relay Failed: ${response.status} - ${errorText}`);
+            return { success: false, error: errorText };
+        }
+
+        const result = await response.json();
+        console.log('Supabase Relay Success:', result);
+        return { success: true, result };
+    } catch (error) {
+        console.error('Supabase Relay Error:', error);
+        return { success: false, error: error.message };
+    }
+}

@@ -1,0 +1,84 @@
+{
+  "vva_curriculum_mapping": [
+    {
+      "module_id": "vva_01_ankle_piston",
+      "title": "Ankle Piston",
+      "fms_sfma_trigger": "Deep Squat (Ankle Mobility)",
+      "clinical_focus": "Reactive stiffness and dorsiflexion range of motion.",
+      "unlock_condition": "Score < 2 on FMS Deep Squat"
+    },
+    {
+      "module_id": "vva_02_neural_drive",
+      "title": "Neural Drive",
+      "fms_sfma_trigger": "Active Straight Leg Raise (Neural Tension)",
+      "clinical_focus": "Rate of force development and neuromuscular recruitment.",
+      "unlock_condition": "Asymmetry in ASLR or Score < 2"
+    },
+    {
+      "module_id": "vva_03_apex_evaluation",
+      "title": "Apex Evaluation",
+      "fms_sfma_trigger": "In-Line Lunge (Dynamic Stability)",
+      "clinical_focus": "Peak vertical displacement and force vector analysis.",
+      "unlock_condition": "Fail SFMA Single Leg Stance (Eyes Closed)"
+    },
+    {
+      "module_id": "vva_04_penultimate_stride",
+      "title": "Penultimate Stride",
+      "fms_sfma_trigger": "Hurdle Step (Single Leg Stability)",
+      "clinical_focus": "Horizontal-to-vertical energy transfer efficiency.",
+      "unlock_condition": "Fail SFMA Multi-Segmental Rotation"
+    },
+    {
+      "module_id": "vva_05_triple_extension",
+      "title": "Triple Extension",
+      "fms_sfma_trigger": "Trunk Stability Push-Up (Core/Extension)",
+      "clinical_focus": "Simultaneous hip, knee, and ankle extension synchronization.",
+      "unlock_condition": "Score < 2 on FMS Trunk Stability"
+    },
+    {
+      "module_id": "vva_06_core_bracing",
+      "title": "Core Bracing",
+      "fms_sfma_trigger": "Rotary Stability (Anti-Rotation)",
+      "clinical_focus": "Intra-abdominal pressure and spinal rigidity during takeoff.",
+      "unlock_condition": "Score < 2 on FMS Rotary Stability"
+    },
+    {
+      "module_id": "vva_07_glute_activation",
+      "title": "Glute Activation",
+      "fms_sfma_trigger": "SFMA Single Leg Stance (Glute Medius)",
+      "clinical_focus": "Pelvic leveling and explosive hip extension power.",
+      "unlock_condition": "Trendelenburg sign present during SLS"
+    },
+    {
+      "module_id": "vva_08_hamstring_tension",
+      "title": "Hamstring Tension",
+      "fms_sfma_trigger": "SFMA Multi-Segmental Flexion (Posterior Chain)",
+      "clinical_focus": "Eccentric loading capacity during the swing phase.",
+      "unlock_condition": "Fail SFMA Multi-Segmental Flexion (Touch Toes)"
+    },
+    {
+      "module_id": "vva_09_knee_stability",
+      "title": "Knee Stability",
+      "fms_sfma_trigger": "SFMA Multi-Segmental Extension (Anterior Chain)",
+      "clinical_focus": "Valgus prevention and patellar tendon load management.",
+      "unlock_condition": "Pain or restricted ROM in Multi-Segmental Extension"
+    },
+    {
+      "module_id": "vva_10_upper_body_counter",
+      "title": "Upper Body Counter-Movement",
+      "fms_sfma_trigger": "Shoulder Mobility (Scapular Control)",
+      "clinical_focus": "Arm swing velocity and rotational torque compensation.",
+      "unlock_condition": "Score < 2 on FMS Shoulder Mobility"
+    }
+  ],
+  "shard_economy": {
+    "neural_drive_scan": {
+      "cost_shards": 100,
+      "output": "1 Full Neural Drive Analysis"
+    },
+    "apex_evaluation": {
+      "cost_shards": 500,
+      "output": "1 Comprehensive Apex Evaluation"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Final Evolution AI Coach",
+  "description": "Final Evolution Lab (FEL) — Cel-shaded 3D anime sports universe powered by Babylon.js, canonical 65-bone Mixamo humanoid rig, 19 honest skill disciplines, and sovereign athlete progression.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <title>Final Evolution Lab — PWA Emulator</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            color: #00FFFF; /* Neon Cyan */
+        }
+        #emulator-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #sovereign-wallet {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 255, 255, 0.1);
+            border: 1px solid #00FFFF;
+            padding: 10px 20px;
+            border-radius: 9999px;
+            cursor: pointer;
+            font-size: 12px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            backdrop-filter: blur(10px);
+        }
+        #shard-balance {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div id="emulator-container">
+        <!-- WebGPU / WASM Unreal Shell -->
+        <canvas id="unreal-canvas"></canvas>
+    </div>
+
+    <!-- Medical Disclaimer Gate (Z-Index 1100) -->
+    <div id="medical-disclaimer-gate" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 1100; display: flex; justify-content: center; align-items: center;">
+        <div style="background: rgba(0, 255, 255, 0.05); border: 1px solid #00FFFF; padding: 40px; border-radius: 24px; max-width: 500px; text-align: center; backdrop-filter: blur(20px);">
+            <h2 style="color: #00FFFF; letter-spacing: 2px; margin-bottom: 20px;">MEDICAL DISCLAIMER</h2>
+            <div style="color: rgba(255, 255, 255, 0.7); font-size: 14px; line-height: 1.6; margin-bottom: 30px; max-height: 200px; overflow-y: auto;">
+                Final Evolution Lab is a biomechanical performance tool, not a medical device. 
+                <br><br>
+                By entering the lab, you acknowledge:
+                1. This is not medical advice.
+                2. You are physically cleared for high-intensity explosive testing.
+                3. Final Evolution Lab is not liable for injuries sustained during testing.
+            </div>
+            <button onclick="acceptDisclaimer()" style="background: #00FFFF; color: #000; border: none; padding: 15px 40px; border-radius: 9999px; font-weight: bold; cursor: pointer;">I ACCEPT THE RISK</button>
+        </div>
+    </div>
+
+    <div id="sovereign-wallet" onclick="signIn()">
+        Sovereign Wallet: <span id="wallet-status">Connect</span>
+    </div>
+
+    <div id="shard-balance">
+        Shards: <span id="balance-value">0</span>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        // Sovereign Wallet Integration
+        const supabase = supabase.createClient('YOUR_SUPABASE_URL', 'YOUR_SUPABASE_ANON_KEY');
+
+        // Clinical Gate Logic
+        function checkDisclaimer() {
+            const hasAccepted = localStorage.getItem('felHasAcceptedMedicalDisclaimer');
+            if (hasAccepted === 'true') {
+                document.getElementById('medical-disclaimer-gate').style.display = 'none';
+            }
+        }
+
+        function acceptDisclaimer() {
+            localStorage.setItem('felHasAcceptedMedicalDisclaimer', 'true');
+            document.getElementById('medical-disclaimer-gate').style.display = 'none';
+        }
+
+        async function signIn() {
+            const { user, error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+            if (user) updateUI();
+        }
+
+        async function updateUI() {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+                document.getElementById('wallet-status').innerText = user.email;
+                // Fetch Shards from user_balances
+                const { data, error } = await supabase
+                    .from('user_balances')
+                    .select('shard_balance')
+                    .eq('user_id', user.id)
+                    .single();
+                if (data) document.getElementById('balance-value').innerText = data.shard_balance;
+            }
+        }
+
+        // Listen for Realtime Shard Updates
+        supabase
+            .channel('shard_updates')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_balances' }, payload => {
+                document.getElementById('balance-value').innerText = payload.new.shard_balance;
+            })
+            .subscribe();
+
+        window.onload = () => {
+            checkDisclaimer();
+            updateUI();
+        };
+    </script>
+</body>
+</html>
