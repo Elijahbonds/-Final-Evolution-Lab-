@@ -11,7 +11,6 @@ import {
   Layout,
   LucideIcon
 } from 'lucide-react';
-import PixelBridge from './PixelBridge';
 import { supabase } from '../lib/supabase';
 
 interface StatCardProps {
@@ -234,15 +233,9 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Pixel Streaming & Active Protocol */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Pixel Bridge */}
-          <div className="lg:col-span-2 aspect-video">
-            <PixelBridge />
-          </div>
-
           {/* Active Protocol */}
-          <div className="glass-card p-8 flex flex-col gap-8 border-white/5 relative overflow-hidden">
+          <div className="lg:col-span-3 glass-card p-8 flex flex-col gap-8 border-white/5 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-full h-full bg-gradient-to-l from-[#00F2FF]/5 to-transparent pointer-events-none" />
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">

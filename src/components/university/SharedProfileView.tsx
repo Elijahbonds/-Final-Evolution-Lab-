@@ -225,7 +225,7 @@ export const SharedProfileView: React.FC = () => {
                   GAME PERFORMANCE HISTORY (ARENA)
                 </h3>
               </div>
-              <span className="text-[9px] font-mono text-zinc-400">UNREAL PIXEL STREAMING</span>
+              <span className="text-[9px] font-mono text-zinc-400">VENICE NIGHT COURT</span>
             </div>
 
             <div className="space-y-2">

@@ -67,23 +67,24 @@ export function setupCelShadingPipeline(scene: Scene, camera: ArcRotateCamera): 
         float dy = (lumUp - lumDown);
         float edge = sqrt(dx * dx + dy * dy);
 
-        // 2. Hard Shadow Terminator & Band Quantization (Anime Cel Stepping)
+        // 2. Soft band quantization; guard against pure-black crushing
         float numBands = max(celBands, 3.0);
-        float steppedLum = floor(lumCenter * numBands + 0.15) / numBands;
-        
-        // Hard-shadow cutoff logic
+        float steppedLum = floor(lumCenter * numBands + 0.5) / numBands;
         vec3 celShaded = originalColor.rgb * (steppedLum / max(lumCenter, 0.001));
-        // Clamp and boost saturation
-        celShaded = clamp(celShaded * 1.12, 0.0, 1.0);
+        celShaded = clamp(celShaded * 1.06, 0.0, 1.0);
 
-        // 3. Saturated Rim Lighting / High-Frequency Edge Highlights
-        float rimFactor = smoothstep(0.72, 0.98, lumCenter);
-        vec3 finalColor = mix(celShaded, celShaded + rimColor * 0.45, rimFactor);
+        // 3. Lift darkest tones so court/rim remain visible
+        float lift = 0.035;
+        celShaded = mix(celShaded, celShaded + lift, 1.0 - smoothstep(0.0, 0.25, lumCenter));
 
-        // 4. Blend Dark-Blue Ink Outlines (Thresholded)
-        if (edge > 0.085) {
-          float inkStrength = smoothstep(0.085, 0.22, edge);
-          finalColor = mix(finalColor, inkColor, inkStrength * 0.92);
+        // 4. Saturated Rim Lighting / High-Frequency Edge Highlights
+        float rimFactor = smoothstep(0.65, 0.95, lumCenter);
+        vec3 finalColor = mix(celShaded, celShaded + rimColor * 0.35, rimFactor);
+
+        // 5. Blend Dark-Blue Ink Outlines (Thresholded)
+        if (edge > 0.095) {
+          float inkStrength = smoothstep(0.095, 0.24, edge);
+          finalColor = mix(finalColor, inkColor, inkStrength * 0.82);
         }
 
         // Output final cel-shaded frame
@@ -107,8 +108,8 @@ export function setupCelShadingPipeline(scene: Scene, camera: ArcRotateCamera): 
     effect.setVector2('screenSize', new Vector3(scene.getEngine().getRenderWidth(), scene.getEngine().getRenderHeight(), 0));
     effect.setColor3('inkColor', ANIME_INK_BLUE);
     effect.setColor3('rimColor', RIM_CYAN);
-    effect.setFloat('outlineThickness', 1.25);
-    effect.setFloat('celBands', 3.0); // 3-tone hard stepped anime shade
+    effect.setFloat('outlineThickness', 1.1);
+    effect.setFloat('celBands', 5.0); // softer 5-tone banding to preserve visible detail
   };
 
   return postProcess;
@@ -117,7 +118,7 @@ export function setupCelShadingPipeline(scene: Scene, camera: ArcRotateCamera): 
 export function createBabylonContext(canvas: HTMLCanvasElement): BabylonSceneContext {
   const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
   const scene = new Scene(engine);
-  scene.clearColor = new Color4(0.015, 0.02, 0.04, 1.0);
+  scene.clearColor = new Color4(0.06, 0.09, 0.16, 1.0);
 
   // Camera setup
   const camera = new ArcRotateCamera(
@@ -134,20 +135,26 @@ export function createBabylonContext(canvas: HTMLCanvasElement): BabylonSceneCon
   camera.lowerBetaLimit = 0.1;
   camera.upperBetaLimit = Math.PI / 2 - 0.05;
 
-  // Key & Fill Lighting tuned for hard shadow terminators and anime cel contrast
+  // Venice night-court lighting: warm key + cool fill + rim so the canvas is not black
   const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), scene);
-  hemiLight.intensity = 0.55;
-  hemiLight.groundColor = new Color3(0.04, 0.07, 0.15); // Rich navy ground bounce
-  hemiLight.diffuse = new Color3(0.85, 0.92, 1.0);
+  hemiLight.intensity = 0.85;
+  hemiLight.groundColor = new Color3(0.08, 0.12, 0.22);
+  hemiLight.diffuse = new Color3(0.7, 0.78, 1.0);
 
-  const dirLight = new DirectionalLight('dirLight', new Vector3(-1, -2, -1).normalize(), scene);
-  dirLight.position = new Vector3(8, 14, 8);
-  dirLight.intensity = 1.35;
-  dirLight.diffuse = new Color3(1.0, 0.98, 0.92);
+  const dirLight = new DirectionalLight('dirLight', new Vector3(-1, -2.5, -1.2).normalize(), scene);
+  dirLight.position = new Vector3(10, 18, 10);
+  dirLight.intensity = 1.6;
+  dirLight.diffuse = new Color3(1.0, 0.94, 0.82);
+
+  // Cool rim fill from boardwalk side
+  const rimLight = new DirectionalLight('rimLight', new Vector3(1, -0.5, 1).normalize(), scene);
+  rimLight.position = new Vector3(-8, 6, -8);
+  rimLight.intensity = 0.7;
+  rimLight.diffuse = new Color3(0.5, 0.75, 1.0);
 
   const shadowGen = new ShadowGenerator(1024, dirLight);
   shadowGen.useBlurExponentialShadowMap = true;
-  shadowGen.blurKernel = 16; // Sharper anime shadow edge
+  shadowGen.blurKernel = 12;
 
   // Attach the Cel-Shading & Dark-Blue Ink Outline Shader Post-Processing Pipeline
   const celPostProcess = setupCelShadingPipeline(scene, camera);

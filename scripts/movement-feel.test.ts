@@ -165,7 +165,8 @@ export function runMovementFeelTests(): TestResult[] {
 }
 
 // Direct execution when run via tsx / node
-if (typeof process !== 'undefined' && process.argv && process.argv[1]?.includes('movement-feel')) {
+const nodeProcess = typeof process !== 'undefined' ? process : undefined;
+if (nodeProcess?.argv?.[1]?.includes('movement-feel')) {
   console.log('=== NBA LIVE 07/08 MOVEMENT FEEL SUITE ===\n');
   const testResults = runMovementFeelTests();
   let allPass = true;
@@ -179,7 +180,7 @@ if (typeof process !== 'undefined' && process.argv && process.argv[1]?.includes(
   }
   if (!allPass) {
     console.error('Movement feel regression tests failed.');
-    process.exit(1);
+    nodeProcess?.exit(1);
   } else {
     console.log('All 5 feel targets verified green!');
   }

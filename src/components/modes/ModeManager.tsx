@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Play, Radio, Sparkles,
+  Play, Sparkles,
   Dribbble, Shield, CircleDot, Trophy, Music, Flame, Swords, Box,
   Waves, Flag, Film
 } from 'lucide-react';
@@ -23,7 +23,6 @@ import { VolleyballMode } from './VolleyballMode';
 import { CourtCarnivalMode } from './CourtCarnivalMode';
 import { WhoSceneItMode } from './WhoSceneItMode';
 import { MasteryLadderView } from './MasteryLadderView';
-import PixelBridge from '../PixelBridge';
 import BrainBrawl from '../BrainBrawl';
 
 export type ActiveSportMode = 
@@ -46,14 +45,13 @@ export type ActiveSportMode =
   | 'dance' 
   | 'snowboard' 
   | 'karate'
-  | 'brain_brawl' 
-  | 'pixel_streaming';
+  | 'brain_brawl';
 
 interface ModeManagerProps {
   initialMode?: ActiveSportMode;
 }
 
-export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'select' }) => {
+export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'babylon_dunk' }) => {
   const [activeMode, setActiveMode] = useState<ActiveSportMode>(initialMode);
 
   return (
@@ -71,18 +69,17 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'select'
             {/* Header / Banner */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between p-6 sm:p-8 rounded-3xl bg-zinc-950/80 border border-white/10 gap-6 shadow-2xl">
               <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-[#00F2FF] px-2.5 py-0.5 rounded-full bg-[#00F2FF]/10 border border-[#00F2FF]/30 font-bold uppercase">
-                    ATHLETE OS // LIVING SPORTS UNIVERSE
-                  </span>
-                  <span className="text-xs font-mono text-zinc-500">• 19 DISCIPLINES & HONEST SYSTEMS</span>
-                </div>
-                <h2 className="font-orbitron text-2xl sm:text-3xl font-black uppercase text-white mt-1">
-                  CHOOSE YOUR ARENA DISCIPLINE
-                </h2>
-                <p className="text-xs font-mono text-zinc-400 mt-1 max-w-2xl">
-                  Every mode delivers complete sport fantasy with real skill expression, explainable outcomes, and measurable athlete progression.
-                </p>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono text-[#00F2FF] px-2.5 py-0.5 rounded-full bg-[#00F2FF]/10 border border-[#00F2FF]/30 font-bold uppercase">
+                  ATHLETE OS // VENICE NIGHT COURT
+                </span>
+              </div>
+              <h2 className="font-orbitron text-2xl sm:text-3xl font-black uppercase text-white mt-1">
+                CHOOSE YOUR ARENA DISCIPLINE
+              </h2>
+              <p className="text-xs font-mono text-zinc-400 mt-1 max-w-2xl">
+                Every mode delivers complete sport fantasy with real skill expression, explainable outcomes, and measurable athlete progression.
+              </p>
               </div>
 
               <div className="flex items-center gap-3 flex-wrap">
@@ -94,19 +91,12 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'select'
                   ATHLETE MASTERY LADDER
                 </button>
 
-                <button
-                  onClick={() => setActiveMode('pixel_streaming')}
-                  className="px-5 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-[#00F2FF] border border-[#00F2FF]/30 font-mono text-xs font-bold transition-colors flex items-center gap-2 min-h-[44px] cursor-pointer"
-                >
-                  <Radio className="w-4 h-4 text-[#00F2FF] animate-pulse" />
-                  UNREAL 5 PIXEL BRIDGE
-                </button>
               </div>
             </div>
 
             {/* Sport Modes Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {/* 1. BABYLON 3D DUNK CONTEST */}
+              {/* 1. VENICE NIGHT DUNK CONTEST */}
               <div 
                 onClick={() => setActiveMode('babylon_dunk')}
                 className="group relative p-6 rounded-3xl bg-zinc-950/90 border border-[#00F2FF]/60 hover:border-[#00F2FF] transition-all cursor-pointer overflow-hidden shadow-[0_0_30px_rgba(0,242,255,0.15)] hover:shadow-[0_0_40px_rgba(0,242,255,0.35)] flex flex-col justify-between min-h-[230px]"
@@ -119,19 +109,19 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'select'
                       <Box className="w-6 h-6 animate-pulse" />
                     </div>
                     <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-[#00F2FF] text-black font-black uppercase tracking-wider shadow-[0_0_15px_rgba(0,242,255,0.5)]">
-                      BABYLON.JS 3D
+                      VENICE NIGHT
                     </span>
                   </div>
                   <h3 className="font-orbitron text-lg font-black text-white uppercase group-hover:text-[#00F2FF] transition-colors flex items-center gap-2">
-                    3D SLAM DUNK CONTEST
+                    SLAM DUNK CONTEST
                   </h3>
                   <p className="text-xs font-mono text-zinc-300 mt-1.5 leading-relaxed">
-                    Full WebGL 3D physics arena. Hold to charge vertical leap, execute windmill/360 slams, and receive 3-judge scoring with GCT metrics.
+                    Venice Beach night court. Hold to charge vertical leap, execute windmill/360 slams, and receive Eastbay Master Standard scoring.
                   </p>
                 </div>
 
                 <div className="flex items-center justify-between pt-4 border-t border-white/10 mt-4">
-                  <span className="text-[10px] font-mono text-[#00F2FF] font-bold">3D HARDCOURT • ORBIT CAM</span>
+                  <span className="text-[10px] font-mono text-[#00F2FF] font-bold">REGULATION 3.05M • ORBIT CAM</span>
                   <span className="text-xs font-mono font-bold text-black bg-[#00F2FF] px-3 py-1 rounded-xl flex items-center gap-1 group-hover:scale-105 transition-transform shadow-[0_0_15px_rgba(0,242,255,0.4)]">
                     PLAY 3D <Play className="w-3.5 h-3.5 fill-black" />
                   </span>
@@ -362,7 +352,7 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'select'
                 </div>
               </div>
 
-              {/* 9. BABYLON 3D CYBER DOJO KARATE */}
+              {/* 9. CYBER DOJO KARATE */}
               <div 
                 onClick={() => setActiveMode('babylon_karate')}
                 className="group relative p-6 rounded-3xl bg-zinc-950/90 border border-red-500/60 hover:border-red-500 transition-all cursor-pointer overflow-hidden shadow-[0_0_30px_rgba(239,68,68,0.15)] hover:shadow-[0_0_40px_rgba(239,68,68,0.35)] flex flex-col justify-between min-h-[230px]"
@@ -375,11 +365,11 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'select'
                       <Swords className="w-6 h-6 animate-pulse" />
                     </div>
                     <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-red-500 text-black font-black uppercase tracking-wider shadow-[0_0_15px_rgba(239,68,68,0.5)]">
-                      BABYLON.JS 3D
+                      CYBER DOJO
                     </span>
                   </div>
                   <h3 className="font-orbitron text-lg font-black text-white uppercase group-hover:text-red-400 transition-colors">
-                    3D CYBER DOJO KARATE
+                    CYBER DOJO KARATE
                   </h3>
                   <p className="text-xs font-mono text-zinc-300 mt-1.5 leading-relaxed">
                     Full 3D Tatami ring with Torii gate. Directional strikes, parry shields, combo chains, and KO physics in real-time WebGL.
@@ -862,10 +852,10 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'select'
           </motion.div>
         )}
 
-        {/* Babylon 3D Dunk Contest Viewport */}
+        {/* Venice Night Dunk Contest Viewport */}
         {activeMode === 'babylon_dunk' && (
           <motion.div
-            key="babylon_dunk_mode"
+            key="venice_dunk_mode"
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
@@ -874,7 +864,7 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'select'
           </motion.div>
         )}
 
-        {/* Babylon 3D Cyber Dojo Karate Viewport */}
+        {/* Cyber Dojo Karate Viewport */}
         {activeMode === 'babylon_karate' && (
           <motion.div
             key="babylon_karate_mode"
@@ -883,25 +873,6 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'select'
             exit={{ opacity: 0, scale: 0.98 }}
           >
             <BabylonKarate3DMode onBack={() => setActiveMode('select')} />
-          </motion.div>
-        )}
-
-        {/* Pixel Streaming Bridge Viewport */}
-        {activeMode === 'pixel_streaming' && (
-          <motion.div
-            key="pixel_stream"
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
-            className="space-y-4"
-          >
-            <button
-              onClick={() => setActiveMode('select')}
-              className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white font-mono text-xs border border-white/10 min-h-[44px] flex items-center gap-2 cursor-pointer"
-            >
-              ← RETURN TO SPORT SELECTION
-            </button>
-            <PixelBridge />
           </motion.div>
         )}
 

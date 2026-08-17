@@ -13,7 +13,7 @@ import { ModeManager } from './components/modes/ModeManager';
 type View = 'landing' | 'dashboard' | 'arena' | 'lab' | 'training' | 'academy' | 'community' | 'mixtapes' | 'support';
 
 const App: React.FC = () => {
-  const [view, setView] = useState<View>('landing');
+  const [view, setView] = useState<View>('arena');
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showBank, setShowBank] = useState(false);
   const [shards, setShards] = useState(1250);

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { 
-  ArrowLeft, RotateCcw, Volume2, VolumeX, Flame, 
+  ArrowLeft, RotateCcw, Volume2, VolumeX, 
   Trophy, Play
 } from 'lucide-react';
 import { 
@@ -18,12 +18,13 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextRef = useRef<BabylonSceneContext | null>(null);
 
-  const [gameState, setGameState] = useState<'IDLE' | 'APPROACH' | 'AIRBORNE' | 'SLAMMED' | 'SCORED'>('IDLE');
+  const [gameState, setGameState] = useState<
+    'IDLE' | 'GATHER' | 'PLANT' | 'TAKEOFF' | 'HANG' | 'CONTACT' | 'LAND' | 'SCORED'
+  >('IDLE');
   const [charge, setCharge] = useState<number>(0);
   const [dunkStyle, setDunkStyle] = useState<'WINDMILL' | 'TOMAHAWK' | '360_SPIN' | 'BETWEEN_LEGS'>('WINDMILL');
-  const [score, setScore] = useState<number | null>(null);
-  const [scoresArray, setScoresArray] = useState<{ judge: string; pts: number; note: string }[]>([]);
-  const [gctMs, setGctMs] = useState<number>(98);
+  const [result, setResult] = useState<'make' | 'miss' | null>(null);
+  const [gctMs, setGctMs] = useState<number>(164);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [cameraMode, setCameraMode] = useState<'BROADCAST' | 'COURTSIDE' | 'RIM_CAM'>('BROADCAST');
 
@@ -32,6 +33,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const athletePosRef = useRef<Vector3>(new Vector3(0, 0, -6));
   const isHoldingCharge = useRef<boolean>(false);
   const chargeStartTime = useRef<number>(0);
+  const animationRef = useRef<number | null>(null);
 
   const playSfx = useCallback((fn: () => void) => {
     if (soundEnabled) fn();
@@ -45,21 +47,28 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     const { scene, shadowGenerator } = ctx;
     const hoopPosition = hoopPosRef.current;
 
-    // 1. Venice Beach Hardcourt Ground Mesh
+    // 1. Venice Beach night hardcourt (visible under cel-shader)
     const court = MeshBuilder.CreateGround('venice_court', { width: 16, height: 24 }, scene);
     const courtMat = new StandardMaterial('courtMat', scene);
-    courtMat.diffuseColor = new Color3(0.06, 0.22, 0.42); // Venice Blue
-    courtMat.specularColor = new Color3(0.15, 0.15, 0.15);
+    courtMat.diffuseColor = new Color3(0.16, 0.34, 0.52);
+    courtMat.specularColor = new Color3(0.12, 0.12, 0.12);
     court.material = courtMat;
     court.receiveShadows = true;
 
     // Court Boundary Lines
     const lines = MeshBuilder.CreateBox('court_lines', { width: 14.8, height: 0.01, depth: 22.8 }, scene);
     const lineMat = new StandardMaterial('lineMat', scene);
-    lineMat.diffuseColor = new Color3(0.9, 0.9, 0.95);
-    lineMat.alpha = 0.6;
+    lineMat.diffuseColor = new Color3(0.95, 0.95, 1.0);
+    lineMat.alpha = 0.85;
     lines.position.y = 0.005;
     lines.material = lineMat;
+
+    // Subtle key paint to give the court visible structure
+    const keyPaint = MeshBuilder.CreateBox('key_paint', { width: 4.9, height: 0.005, depth: 5.8 }, scene);
+    const keyMat = new StandardMaterial('keyMat', scene);
+    keyMat.diffuseColor = new Color3(0.12, 0.26, 0.42);
+    keyPaint.material = keyMat;
+    keyPaint.position.set(0, 0.003, 4.9);
 
     // 2. Regulation 3.05m Basketball Backboard & Rim
     const post = MeshBuilder.CreateCylinder('hoop_post', { height: 3.8, diameter: 0.16 }, scene);
@@ -91,12 +100,17 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     const athlete = createProceduralAthlete(
       scene,
       'heroAthlete',
-      new Color3(0.0, 0.95, 1.0), // Neon Cyan Jersey
-      new Color3(0.44, 0.0, 1.0), // Purple Accent
+      new Color3(0.1, 0.85, 1.0), // Neon Cyan Jersey
+      new Color3(0.55, 0.05, 1.0), // Purple Accent
       shadowGenerator
     );
     athleteRef.current = athlete;
     athlete.root.position.copyFrom(athletePosRef.current);
+    // Start with ball held in right hand (dribble-ready)
+    if (athlete.basketball) {
+      athlete.basketball.position.set(0.8, 1.25, 0.2);
+    }
+    athlete.rightArm.rotation.z = -Math.PI / 6;
 
     // Particle Burst for Rim Slam
     const particleSys = new ParticleSystem('slamParticles', 100, scene);
@@ -150,6 +164,25 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     }
   };
 
+  const resetAthletePose = (athlete: ReturnType<typeof createProceduralAthlete>) => {
+    athlete.root.position.copyFrom(athletePosRef.current);
+    athlete.root.rotation.set(0, 0, 0);
+    athlete.leftLeg.rotation.set(0, 0, 0);
+    athlete.rightLeg.rotation.set(0, 0, 0);
+    athlete.leftArm.rotation.set(0, 0, Math.PI / 8);
+    athlete.rightArm.rotation.set(0, 0, -Math.PI / 6);
+    if (athlete.basketball) {
+      athlete.basketball.position.set(0.8, 1.25, 0.2);
+    }
+  };
+
+  const clearAnimation = () => {
+    if (animationRef.current !== null) {
+      clearInterval(animationRef.current);
+      animationRef.current = null;
+    }
+  };
+
   // Charge up mechanic
   const handlePointerDown = () => {
     if (gameState !== 'IDLE') return;
@@ -157,7 +190,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     chargeStartTime.current = performance.now();
     playSfx(() => SoundJuice.playCharge());
 
-    const interval = setInterval(() => {
+    const interval = window.setInterval(() => {
       if (!isHoldingCharge.current) {
         clearInterval(interval);
         return;
@@ -168,92 +201,149 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     }, 30);
   };
 
-  // Release jump & execute slam
+  // Release jump & execute the Venice dunk loop: gather → plant → takeoff → hang → contact → land
   const handlePointerUp = () => {
     if (!isHoldingCharge.current || gameState !== 'IDLE') return;
     isHoldingCharge.current = false;
     const finalCharge = charge;
-    setGameState('APPROACH');
 
     const athlete = athleteRef.current;
     if (!athlete) return;
 
     playSfx(() => SoundJuice.playTakeoff());
+    setGameState('GATHER');
 
-    // Animated Stride & Takeoff to Rim
+    const gatherZ = -2.4;
+    const plantZ = -0.9;
+    const takeoffZ = 0.7;
+    const rimZ = hoopPosRef.current.z;
+    const rimY = hoopPosRef.current.y;
+
+    // Determine make/miss based on charge window (sweet spot 80-95)
+    const isMake = finalCharge >= 72 && finalCharge <= 96;
+    setResult(isMake ? 'make' : 'miss');
+
+    // Clamp miss type: short vs long/brick
+    const missReason = finalCharge < 72 ? 'SHORT' : 'RIM_OUT';
+
     let t = 0;
-    const approachInterval = setInterval(() => {
-      t += 0.04;
-      if (t < 0.45) {
-        // Linear acceleration along Z
-        const currentZ = -6 + (t / 0.45) * 8.5;
-        athlete.root.position.z = currentZ;
-        athlete.root.position.y = 0;
-        // Running leg animation
-        athlete.leftLeg.rotation.x = Math.sin(t * 20) * 0.6;
-        athlete.rightLeg.rotation.x = -Math.sin(t * 20) * 0.6;
-      } else if (t < 0.95) {
-        // Airborne jump arc
-        setGameState('AIRBORNE');
-        const jumpProgress = (t - 0.45) / 0.5;
-        athlete.root.position.z = 2.5 + jumpProgress * 2.8;
-        // Parabolic jump arc with peak height proportional to charge
-        const maxHeight = 3.3 + (finalCharge / 100) * 0.7;
-        athlete.root.position.y = Math.sin(jumpProgress * Math.PI) * maxHeight;
+    clearAnimation();
+    animationRef.current = window.setInterval(() => {
+      t += 0.022;
 
-        // Dunk trick animation
-        if (dunkStyle === '360_SPIN') {
-          athlete.root.rotation.y = jumpProgress * Math.PI * 2;
-        } else if (dunkStyle === 'WINDMILL') {
-          athlete.rightArm.rotation.x = -jumpProgress * Math.PI * 2.5;
-        } else if (dunkStyle === 'TOMAHAWK') {
-          athlete.rightArm.rotation.x = -Math.PI * 0.8 + Math.sin(jumpProgress * Math.PI) * 1.2;
-        }
-      } else {
-        // Slam Impact!
-        clearInterval(approachInterval);
-        setGameState('SLAMMED');
-        athlete.root.position.set(0, 2.7, 5.3);
+      // Phase 1: GATHER (dribble into controlled approach)
+      if (t < 0.35) {
+        const p = t / 0.35;
+        athlete.root.position.z = athletePosRef.current.z + (gatherZ - athletePosRef.current.z) * p;
+        athlete.root.position.y = Math.abs(Math.sin(p * Math.PI * 4)) * 0.08;
+        athlete.leftLeg.rotation.x = Math.sin(p * Math.PI * 8) * 0.4;
+        athlete.rightLeg.rotation.x = -Math.sin(p * Math.PI * 8) * 0.4;
         if (athlete.basketball) {
-          athlete.basketball.position.copyFrom(hoopPosRef.current);
+          athlete.basketball.position.set(0.55, 1.05 + Math.sin(p * Math.PI * 6) * 0.25, 0.3);
         }
-        
-        playSfx(() => SoundJuice.playSlam());
-
-        // Calculate scores & feedback
-        const timingScore = Math.max(70, Math.min(100, Math.round(100 - Math.abs(finalCharge - 92) * 1.5)));
-        const calculatedGct = Math.max(75, Math.round(120 - (finalCharge / 100) * 35));
-        setGctMs(calculatedGct);
-        setScore(timingScore);
-
-        setScoresArray([
-          { judge: 'DOMINIQUE', pts: Math.min(10, Math.round(timingScore / 10)), note: 'Explosive vertical rise!' },
-          { judge: 'VINCE', pts: Math.min(10, Math.round((timingScore + 2) / 10)), note: 'Flawless extension at apex.' },
-          { judge: 'ELIJAH', pts: Math.min(10, Math.round((timingScore - 1) / 10)), note: `GCT: ${calculatedGct}ms · Elite recoil` }
-        ]);
-
-        setTimeout(() => {
-          setGameState('SCORED');
-        }, 1200);
       }
-    }, 25);
+      // Phase 2: PLANT (penultimate stride compression)
+      else if (t < 0.55) {
+        setGameState('PLANT');
+        const p = (t - 0.35) / 0.2;
+        athlete.root.position.z = gatherZ + (plantZ - gatherZ) * p;
+        athlete.root.position.y = 0.15 * (1 - p);
+        athlete.leftLeg.rotation.x = -0.35 * p;
+        athlete.rightLeg.rotation.x = 0.55 * p;
+        athlete.root.rotation.x = 0.18 * p; // forward trunk lean into plant
+        if (athlete.basketball) {
+          athlete.basketball.position.set(0.45, 1.15, 0.35);
+        }
+      }
+      // Phase 3: TAKEOFF (drive up)
+      else if (t < 0.85) {
+        setGameState('TAKEOFF');
+        const p = (t - 0.55) / 0.3;
+        athlete.root.position.z = plantZ + (takeoffZ - plantZ) * p;
+        athlete.root.position.y = 1.9 * Math.sin(p * Math.PI * 0.55);
+        athlete.root.rotation.x = 0.18 * (1 - p * 0.7); // trunk extends
+        athlete.leftLeg.rotation.x = 0.75 * p;
+        athlete.rightLeg.rotation.x = -0.85 * p;
+        if (athlete.basketball) {
+          athlete.basketball.position.set(0.55, 1.65 + p * 0.6, 0.3);
+        }
+      }
+      // Phase 4: HANG (apex at rim)
+      else if (t < 1.35) {
+        setGameState('HANG');
+        const p = (t - 0.85) / 0.5;
+        const apexHeight = 3.35 + (finalCharge / 100) * 0.55;
+        athlete.root.position.z = takeoffZ + (rimZ - 0.55 - takeoffZ) * Math.sin(p * Math.PI * 0.5);
+        athlete.root.position.y = apexHeight * Math.sin((1 - p) * Math.PI);
+
+        // Style motion during hang
+        if (dunkStyle === '360_SPIN') {
+          athlete.root.rotation.y = p * Math.PI * 2;
+        } else if (dunkStyle === 'WINDMILL') {
+          athlete.rightArm.rotation.x = -p * Math.PI * 2.6;
+        } else if (dunkStyle === 'TOMAHAWK') {
+          athlete.rightArm.rotation.x = -Math.PI * 0.9 + Math.sin(p * Math.PI) * 1.0;
+        } else if (dunkStyle === 'BETWEEN_LEGS') {
+          athlete.rightArm.rotation.x = -Math.PI * 0.45 * p;
+          athlete.leftLeg.rotation.x = 0.65 * Math.sin(p * Math.PI);
+        }
+        if (athlete.basketball) {
+          athlete.basketball.position.set(0.55, athlete.root.position.y + 0.85, 0.3);
+        }
+      }
+      // Phase 5: CONTACT (visible rim interaction)
+      else if (t < 1.55) {
+        setGameState('CONTACT');
+        const p = (t - 1.35) / 0.2;
+        athlete.root.position.z = rimZ - 0.35 + 0.25 * p;
+        athlete.root.position.y = rimY + 0.15 - 0.35 * p;
+
+        if (isMake) {
+          athlete.rightArm.rotation.x = -Math.PI * 1.05;
+          if (athlete.basketball) {
+            athlete.basketball.position.set(0.25, rimY - 0.08 - p * 0.12, rimZ - 0.05);
+          }
+        if (p > 0.5) {
+            playSfx(() => SoundJuice.playSlam());
+          }
+        } else {
+          // Visible miss: ball hits front rim / short
+          if (athlete.basketball) {
+            const missZ = missReason === 'SHORT' ? rimZ - 0.35 - p * 0.55 : rimZ + 0.12 + p * 0.18;
+            const missY = rimY - 0.1 - p * 0.55;
+            athlete.basketball.position.set(0.18, missY, missZ);
+          }
+          athlete.rightArm.rotation.x = -Math.PI * 0.75;
+        }
+      }
+      // Phase 6: LAND
+      else if (t < 1.95) {
+        setGameState('LAND');
+        const p = (t - 1.55) / 0.4;
+        athlete.root.position.z = rimZ - 0.1 + 0.25 * p;
+        athlete.root.position.y = Math.max(0, 0.9 * (1 - p));
+        athlete.root.rotation.y *= (1 - p);
+        athlete.leftLeg.rotation.x = -0.25 * p;
+        athlete.rightLeg.rotation.x = 0.35 * p;
+        athlete.root.rotation.x = 0;
+      }
+      // Done
+      else {
+        clearAnimation();
+        setGameState('SCORED');
+        setGctMs(isMake ? 164 : 198);
+      }
+    }, 22);
   };
 
   const resetDunk = () => {
+    clearAnimation();
     setGameState('IDLE');
     setCharge(0);
-    setScore(null);
-    setScoresArray([]);
+    setResult(null);
     const athlete = athleteRef.current;
     if (athlete) {
-      athlete.root.position.set(0, 0, -6);
-      athlete.root.rotation.set(0, 0, 0);
-      athlete.leftLeg.rotation.set(0, 0, 0);
-      athlete.rightLeg.rotation.set(0, 0, 0);
-      athlete.rightArm.rotation.set(0, 0, -Math.PI / 8);
-      if (athlete.basketball) {
-        athlete.basketball.position.set(0.8, 1.3, 0.2);
-      }
+      resetAthletePose(athlete);
     }
   };
 
@@ -277,12 +367,12 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-[#00F2FF]/20 text-[#00F2FF] border border-[#00F2FF]/40 font-bold uppercase">
-                BABYLON.JS 3D ENGINE
+              VENICE NIGHT COURT
               </span>
-              <span className="text-xs font-mono text-zinc-400">• VENICE 3.05M REGULATION</span>
+            <span className="text-xs font-mono text-zinc-400">• 3.05M REGULATION</span>
             </div>
             <h1 className="text-xl sm:text-2xl font-orbitron font-black text-white uppercase tracking-tight mt-0.5">
-              3D SLAM DUNK CONTEST
+            SLAM DUNK CONTEST
             </h1>
           </div>
         </div>
@@ -312,66 +402,64 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* Center Action Feedback Overlay */}
-      {gameState === 'SLAMMED' && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none animate-bounce">
-          <div className="p-6 rounded-3xl bg-black/80 border border-[#00F2FF] shadow-[0_0_80px_rgba(0,242,255,0.6)] text-center">
-            <Flame className="w-12 h-12 text-[#00F2FF] mx-auto animate-pulse" />
-            <h2 className="text-4xl sm:text-5xl font-orbitron font-black text-white tracking-widest uppercase mt-2">
-              SLAMMED!
-            </h2>
-            <p className="text-xs font-mono text-[#00FF9D] mt-1 font-bold">16.6ms KINETIC PEAK</p>
+      {/* Phase Feedback Overlay */}
+      {gameState !== 'IDLE' && gameState !== 'SCORED' && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+          <div className="px-5 py-3 rounded-2xl bg-black/70 border border-white/10 backdrop-blur-md">
+            <span className="text-xs font-mono font-bold text-[#00F2FF] uppercase tracking-widest">
+              {gameState.replace('_', ' ')}
+            </span>
           </div>
         </div>
       )}
 
-      {/* Scorecard Modal Overlay */}
-      {gameState === 'SCORED' && score !== null && (
+      {/* Eastbay Master Standard Result Card */}
+      {gameState === 'SCORED' && result !== null && (
         <div className="absolute inset-0 z-30 flex items-center justify-center p-6 bg-black/75 backdrop-blur-md animate-fade-in">
-          <div className="max-w-md w-full p-8 rounded-3xl bg-[#090B12] border border-[#00F2FF]/40 shadow-[0_0_100px_rgba(0,242,255,0.3)] text-center space-y-6">
-            <div className="w-12 h-12 rounded-2xl bg-[#00F2FF]/20 border border-[#00F2FF]/40 text-[#00F2FF] flex items-center justify-center mx-auto">
-              <Trophy className="w-6 h-6" />
+          <div className="max-w-sm w-full p-6 rounded-3xl bg-[#090B12] border border-[#00F2FF]/40 shadow-[0_0_80px_rgba(0,242,255,0.25)] text-center space-y-5">
+            <div className="flex items-center justify-center gap-3">
+              <Trophy className="w-6 h-6 text-[#00F2FF]" />
+              <span className="text-[10px] font-mono tracking-widest text-[#00F2FF] uppercase font-bold">
+                Eastbay Master Standard
+              </span>
             </div>
 
-            <div>
-              <div className="text-[10px] font-mono tracking-widest text-[#00F2FF] uppercase font-bold">
-                ADJUDICATED CONTEST SCORE
+            <div className={`text-3xl font-orbitron font-black uppercase tracking-tight ${result === 'make' ? 'text-[#00FF9D]' : 'text-red-400'}`}>
+              {result === 'make' ? 'DUNK CONFIRMED' : result === 'miss' ? 'RIM OUT — RETRY' : ''}
+            </div>
+
+            {/* Master Standard metrics */}
+            <div className="grid grid-cols-2 gap-3 text-left">
+              <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/10">
+                <div className="text-[9px] font-mono text-zinc-500 uppercase">GCT</div>
+                <div className="text-lg font-orbitron font-black text-white">{gctMs}<span className="text-xs font-mono text-zinc-500 ml-1">ms</span></div>
               </div>
-              <div className="text-5xl font-orbitron font-black text-white mt-1">
-                {score} <span className="text-xl text-zinc-500">/ 100</span>
+              <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/10">
+                <div className="text-[9px] font-mono text-zinc-500 uppercase">ELASTIC RECOIL</div>
+                <div className="text-lg font-orbitron font-black text-white">4.8<span className="text-xs font-mono text-zinc-500 ml-1">x BW</span></div>
+              </div>
+              <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/10">
+                <div className="text-[9px] font-mono text-zinc-500 uppercase">VERTICAL</div>
+                <div className="text-lg font-orbitron font-black text-white">38.5<span className="text-xs font-mono text-zinc-500 ml-1">in</span></div>
+              </div>
+              <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/10">
+                <div className="text-[9px] font-mono text-zinc-500 uppercase">TRUNK LEAN</div>
+                <div className="text-lg font-orbitron font-black text-white">3°<span className="text-xs font-mono text-zinc-500 ml-1">right</span></div>
               </div>
             </div>
 
-            {/* 3-Judge Array */}
-            <div className="space-y-2 text-left">
-              {scoresArray.map((j, i) => (
-                <div key={i} className="p-3 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-between">
-                  <div>
-                    <div className="text-xs font-mono font-bold text-white">{j.judge}</div>
-                    <div className="text-[10px] font-mono text-zinc-400">{j.note}</div>
-                  </div>
-                  <div className="text-lg font-orbitron font-black text-[#FFD700]">
-                    {j.pts}.0
-                  </div>
-                </div>
-              ))}
+            <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/10">
+              <div className="text-[10px] font-mono text-zinc-400 uppercase">CASE CLASSIFICATION</div>
+              <div className="text-sm font-mono font-bold text-white mt-1">NOT CLINICAL</div>
             </div>
 
-            {/* Biometric GCT Benchmark */}
-            <div className="p-3.5 rounded-2xl bg-[#00FF9D]/10 border border-[#00FF9D]/30 flex items-center justify-between text-xs font-mono">
-              <span className="text-zinc-300">REACTIVE GCT TIMING:</span>
-              <span className="font-bold text-[#00FF9D]">{gctMs} ms [ELITE]</span>
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={resetDunk}
-                className="flex-1 py-4 bg-[#00F2FF] text-black font-orbitron font-black text-sm rounded-2xl hover:bg-[#00F2FF]/90 transition-all shadow-[0_0_25px_rgba(0,242,255,0.4)] flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <RotateCcw className="w-4 h-4" />
-                NEXT ATTEMPT
-              </button>
-            </div>
+            <button
+              onClick={resetDunk}
+              className="w-full py-4 bg-[#00F2FF] text-black font-orbitron font-black text-sm rounded-2xl hover:bg-[#00F2FF]/90 transition-all shadow-[0_0_25px_rgba(0,242,255,0.4)] flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <RotateCcw className="w-4 h-4" />
+              {result === 'make' ? 'NEXT ATTEMPT' : 'INSTANT RETRY'}
+            </button>
           </div>
         </div>
       )}
@@ -421,6 +509,9 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
               onMouseUp={handlePointerUp}
               onTouchStart={handlePointerDown}
               onTouchEnd={handlePointerUp}
+              onMouseLeave={() => {
+                if (isHoldingCharge.current) handlePointerUp();
+              }}
               className="px-8 py-4 rounded-2xl bg-[#00F2FF] text-black font-orbitron font-black text-sm tracking-wider hover:bg-[#00F2FF]/90 transition-all shadow-[0_0_35px_rgba(0,242,255,0.4)] active:scale-95 flex items-center gap-2 cursor-pointer select-none"
             >
               <Play className="w-4 h-4 fill-black" />
