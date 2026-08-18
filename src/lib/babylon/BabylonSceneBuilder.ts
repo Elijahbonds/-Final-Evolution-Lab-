@@ -323,13 +323,19 @@ export function createProceduralAthlete(
   rightForearm.parent = root;
   applyAnimeInkOutlineToMesh(rightForearm, 0.025);
 
-  // Expose arms as compound groups (visual stand-ins for full IK)
-  const leftArm = MeshBuilder.CreateBox(`${name}_leftArm`, { size: 0.01 }, scene);
-  leftArm.isVisible = false;
+  // Visible arm chains parented to the nodes callers rotate — no 0.01 ghost limbs.
+  const leftArm = new Mesh(`${name}_leftArm`, scene);
   leftArm.parent = root;
-  const rightArm = MeshBuilder.CreateBox(`${name}_rightArm`, { size: 0.01 }, scene);
-  rightArm.isVisible = false;
+  leftShoulder.parent = leftArm;
+  leftUpperArm.parent = leftArm;
+  leftElbow.parent = leftArm;
+  leftForearm.parent = leftArm;
+  const rightArm = new Mesh(`${name}_rightArm`, scene);
   rightArm.parent = root;
+  rightShoulder.parent = rightArm;
+  rightUpperArm.parent = rightArm;
+  rightElbow.parent = rightArm;
+  rightForearm.parent = rightArm;
 
   // --- Segmented legs ---
   const hipX = 0.24;
@@ -388,13 +394,19 @@ export function createProceduralAthlete(
   applyAnimeInkOutlineToMesh(rightFoot, 0.03);
   shadowGen?.addShadowCaster(rightFoot);
 
-  // Hidden compound legs for callers that rotate simple legs
-  const leftLeg = MeshBuilder.CreateBox(`${name}_leftLeg`, { size: 0.01 }, scene);
-  leftLeg.isVisible = false;
+  // Visible legs parented to the nodes callers rotate — thighs move with the pose.
+  const leftLeg = new Mesh(`${name}_leftLeg`, scene);
   leftLeg.parent = root;
-  const rightLeg = MeshBuilder.CreateBox(`${name}_rightLeg`, { size: 0.01 }, scene);
-  rightLeg.isVisible = false;
+  leftThigh.parent = leftLeg;
+  leftKnee.parent = leftLeg;
+  leftShin.parent = leftLeg;
+  leftFoot.parent = leftLeg;
+  const rightLeg = new Mesh(`${name}_rightLeg`, scene);
   rightLeg.parent = root;
+  rightThigh.parent = rightLeg;
+  rightKnee.parent = rightLeg;
+  rightShin.parent = rightLeg;
+  rightFoot.parent = rightLeg;
 
   let basketball: Mesh | undefined;
   let propMesh: Mesh | undefined;
@@ -475,29 +487,20 @@ export function poseReverseTwoHandSlam(
 ) {
   const { root, rightArm, leftArm, rightLeg, leftLeg } = athlete;
   if (!root || !scene) return;
-  const rightThigh = scene.getMeshByName(`${root.name.replace('_root', '')}_rightThigh`) as Mesh | null;
   const rightShin = scene.getMeshByName(`${root.name.replace('_root', '')}_rightShin`) as Mesh | null;
-  const leftThigh = scene.getMeshByName(`${root.name.replace('_root', '')}_leftThigh`) as Mesh | null;
   const leftShin = scene.getMeshByName(`${root.name.replace('_root', '')}_leftShin`) as Mesh | null;
-  const rightUpperArm = scene.getMeshByName(`${root.name.replace('_root', '')}_rightUpperArm`) as Mesh | null;
   const rightForearm = scene.getMeshByName(`${root.name.replace('_root', '')}_rightForearm`) as Mesh | null;
-  const leftUpperArm = scene.getMeshByName(`${root.name.replace('_root', '')}_leftUpperArm`) as Mesh | null;
   const leftForearm = scene.getMeshByName(`${root.name.replace('_root', '')}_leftForearm`) as Mesh | null;
 
-  // Bring knees up
+  // Rotate the visible parent chains — not hidden 0.01 ghosts beside a T-pose.
   rightLeg.rotation.x = -1.1 * intensity;
   leftLeg.rotation.x = -0.9 * intensity;
-  if (rightThigh) rightThigh.rotation.x = -1.0 * intensity;
-  if (leftThigh) leftThigh.rotation.x = -0.85 * intensity;
-  if (rightShin) rightShin.rotation.x = 1.4 * intensity;
-  if (leftShin) leftShin.rotation.x = 1.25 * intensity;
+  if (rightShin) rightShin.rotation.x = 0.55 * intensity;
+  if (leftShin) leftShin.rotation.x = 0.5 * intensity;
 
-  // Arms extended upward/back for reverse slam
   rightArm.rotation.x = -Math.PI * 0.95 * intensity;
   leftArm.rotation.x = -Math.PI * 0.85 * intensity;
-  if (rightUpperArm) rightUpperArm.rotation.x = -Math.PI * 0.75 * intensity;
-  if (leftUpperArm) leftUpperArm.rotation.x = -Math.PI * 0.7 * intensity;
-  if (rightForearm) rightForearm.rotation.x = -Math.PI * 0.35 * intensity;
-  if (leftForearm) leftForearm.rotation.x = -Math.PI * 0.3 * intensity;
+  if (rightForearm) rightForearm.rotation.x = -0.35 * intensity;
+  if (leftForearm) leftForearm.rotation.x = -0.3 * intensity;
 }
 
