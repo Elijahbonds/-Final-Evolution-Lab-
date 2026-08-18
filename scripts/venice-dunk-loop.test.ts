@@ -437,11 +437,14 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     let apex = 0;
     let rose = false;
     let last = Number.POSITIVE_INFINITY;
+    let formulaDrift = false;
     for (let i = 0; i < 160; i++) {
       if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') attempt.inputAir(0, true);
       attempt.tick(1 / 60);
       if (attempt.phase === 'HANG') {
         const y = attempt.rootY();
+        const expected = hangWorldY(attempt.hangElapsed, attempt.takeoffApexY);
+        if (Math.abs(y - expected) > 1e-6) formulaDrift = true;
         if (y0 === null) {
           y0 = y;
           apex = attempt.takeoffApexY;
@@ -461,15 +464,16 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       y0 !== null &&
       Math.abs((y0 ?? 0) - apex) < 0.08 &&
       !rose &&
+      !formulaDrift &&
       drop >= 0.25 &&
       extra > hover + 0.1 &&
-      Math.abs(extra - 0.5 * AIR_G * attempt.hangElapsed * attempt.hangElapsed) < 0.02 &&
+      Math.abs(extra - 0.5 * AIR_G * attempt.hangElapsed * attempt.hangElapsed) < 1e-6 &&
       attempt.outcome?.isMake === true;
     results.push({
       name: 'Live hang falls from apex and a takeoff hold still finishes at the rim',
       passed,
-      actual: `drop=${drop.toFixed(3)} extra=${extra.toFixed(3)} hoverWas=${hover.toFixed(3)} hang0=${y0?.toFixed(3)} apex=${apex.toFixed(3)} rose=${rose} make=${attempt.outcome?.isMake}`,
-      expected: 'continuous apex, ½gt² extraHang, takeoff hold → make at the rim',
+      actual: `drop=${drop.toFixed(3)} extra=${extra.toFixed(3)} hoverWas=${hover.toFixed(3)} hang0=${y0?.toFixed(3)} apex=${apex.toFixed(3)} rose=${rose} drift=${formulaDrift} make=${attempt.outcome?.isMake}`,
+      expected: 'rootY === hangWorldY(t), extraHang === ½gt², takeoff hold → make at the rim',
     });
   }
 

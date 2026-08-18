@@ -424,7 +424,10 @@ export class VeniceDunkAttempt {
       }
       case 'HANG': {
         this.hangElapsed += dt;
-        this.integrateAir(dt);
+        this.posY = hangWorldY(this.hangElapsed, this.takeoffApexY);
+        this.velY = -AIR_G * this.hangElapsed;
+        this.posZ += this.velZ * dt;
+        this.posX = clamp(this.posX + this.velX * dt, -0.9, 0.9);
         const verdict = this.airJudge();
         if (this.airHeld && verdict === 'WINDOW') {
           this.airFinish = 'WINDOW';
@@ -543,7 +546,8 @@ export class VeniceDunkAttempt {
   }
 
   extraHang(): number {
-    return hangDropFromApex(this.takeoffApexY || 0.7, this.hangElapsed);
+    const apex = this.takeoffApexY || 0.7;
+    return Math.max(0, apex - hangWorldY(this.hangElapsed, apex));
   }
 
   rootX(): number {
