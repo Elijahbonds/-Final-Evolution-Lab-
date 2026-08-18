@@ -62,6 +62,15 @@ export const GATHER_WINDOW_AFTER = 0.28;
 
 export type GatherZone = 'APPROACH' | 'WINDOW' | 'PASSED';
 
+/** Hang style from live air steer. Not a HUD pre-pick. */
+export function styleFromAirSteer(airSteer: number): DunkStyle {
+  const mag = Math.abs(airSteer);
+  if (mag > 0.82) return '360_SPIN';
+  if (airSteer < -0.22) return 'WINDMILL';
+  if (airSteer > 0.22) return 'TOMAHAWK';
+  return 'REVERSE_TWO_HAND';
+}
+
 export function gatherWindowState(rootZ: number, plantZ: number = PLANT_MARK_Z): GatherZone {
   const delta = rootZ - plantZ;
   if (delta < -GATHER_WINDOW_BEFORE) return 'APPROACH';
@@ -298,14 +307,15 @@ export class VeniceDunkAttempt {
     this.leaveGround();
   }
 
-  /** Press / drag in the air. First hang press is the finish; steer picks the slam. */
-  inputAir(steerX = 0): void {
+  /**
+   * Hang finish is the style. No HUD tabs.
+   * Cut left = windmill, cut right = tomahawk, hold center = reverse two-hand,
+   * a hard flick = 360. Pose follows this on the body through the hang.
+   */
+  inputAir(steerX = 0, replace = false): void {
     if (this.phase !== 'TAKEOFF' && this.phase !== 'HANG') return;
-    this.airSteer += steerX;
-    if (Math.abs(this.airSteer) > 0.55) this.style = '360_SPIN';
-    else if (steerX < -0.2) this.style = 'WINDMILL';
-    else if (steerX > 0.2) this.style = 'TOMAHAWK';
-    else this.style = 'REVERSE_TWO_HAND';
+    this.airSteer = Math.max(-1, Math.min(1, replace ? steerX : this.airSteer + steerX));
+    this.style = styleFromAirSteer(this.airSteer);
 
     if (this.phase === 'HANG') {
       this.airFinish = judgeAirFinish(this.hangElapsed / PHASE_SECONDS.HANG, true);

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ArrowLeft, Volume2, VolumeX, Play } from 'lucide-react';
+import { ArrowLeft, Volume2, VolumeX } from 'lucide-react';
 import { Vector3, FreeCamera, Color3 } from '@babylonjs/core';
 import { createBabylonContext } from '../../lib/babylon/BabylonSceneBuilder';
 import { createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
@@ -79,7 +79,6 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const camTargetRef = useRef(new Vector3(0, 1.4, 1.5));
 
   const [phase, setPhase] = useState<DunkPhase>('IDLE');
-  const [runwaySpeed, setRunwaySpeed] = useState(0);
   const [result, setResult] = useState<ContactOutcome | null>(null);
   const [metrics, setMetrics] = useState<AttemptMetrics | null>(null);
   const [cue, setCue] = useState<string | null>(null);
@@ -182,7 +181,6 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       }
 
       if (snap.phase === 'RUNWAY') {
-        setRunwaySpeed(attempt.approachSpeed);
         athlete.playRun(0.8 + (attempt.approachSpeed / 8.8) * 0.6);
       }
 
@@ -197,9 +195,14 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       }
       if (snap.phase === 'HANG' || snap.phase === 'CONTACT') {
         const p = snap.phase === 'HANG' ? attempt.hangElapsed / 0.5 : 1;
-        athlete.poseReverseTwoHand(Math.min(1, 0.45 + p * 0.55));
+        const hangI = Math.min(1, 0.45 + p * 0.55);
+        athlete.poseHangStyle(snap.style, hangI);
         if (snap.style === '360_SPIN') {
           athlete.root.rotation.y = p * Math.PI * 2;
+        } else if (snap.style === 'WINDMILL') {
+          athlete.root.rotation.y = Math.PI * 0.62;
+        } else if (snap.style === 'TOMAHAWK') {
+          athlete.root.rotation.y = 0.18;
         } else {
           athlete.root.rotation.y = Math.PI;
         }
@@ -267,7 +270,15 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       return;
     }
     if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') {
-      attempt.inputAir(0);
+      const x = event?.clientX;
+      const canvas = canvasRef.current;
+      if (x != null && canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const nx = ((x - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+        attempt.inputAir(Math.max(-1, Math.min(1, nx)), true);
+      } else {
+        attempt.inputAir(0, true);
+      }
     }
   };
 
@@ -412,47 +423,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         </div>
       )}
 
-      <div className="relative z-10 p-6 flex flex-col sm:flex-row items-center justify-end gap-4 pointer-events-none">
-        {phase === 'IDLE' || phase === 'RUNWAY' || phase === 'GATHER' || phase === 'PLANT' ? (
-          <div className="flex items-center gap-4 pointer-events-auto">
-            {phase === 'RUNWAY' && (
-              <div className="w-40 space-y-1">
-                <div className="flex justify-between text-[10px] font-mono text-zinc-400">
-                  <span>APPROACH</span>
-                  <span>{runwaySpeed.toFixed(1)} m/s</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
-                  <div
-                    className="h-full bg-[#00F2FF]"
-                    style={{ width: `${Math.min(100, (runwaySpeed / 8.8) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            <button
-              onMouseDown={(e) => handlePointerDown(e)}
-              onMouseUp={handlePointerUp}
-              onTouchStart={(e) => handlePointerDown(e.touches[0])}
-              onTouchEnd={handlePointerUp}
-              onMouseLeave={() => {
-                if (pointerDownRef.current) handlePointerUp();
-              }}
-              className="px-8 py-4 rounded-2xl bg-[#00F2FF] text-black font-orbitron font-black text-sm tracking-wider hover:bg-[#00F2FF]/90 transition-all shadow-[0_0_35px_rgba(0,242,255,0.4)] active:scale-95 flex items-center gap-2 cursor-pointer select-none"
-            >
-              <Play className="w-4 h-4 fill-black" />
-              <span>
-                {phase === 'PLANT'
-                  ? 'HOLD THE PLANT · RELEASE TO GO'
-                  : phase === 'GATHER'
-                    ? 'PLANT IT'
-                    : phase === 'RUNWAY'
-                      ? 'RELEASE TO GATHER'
-                      : 'HOLD TO RUN · RELEASE TO GATHER'}
-              </span>
-            </button>
-          </div>
-        ) : null}
-      </div>
+      {/* No phase-name stamp. No style tabs. No charge bar. The court is the play. */}
     </div>
   );
 };

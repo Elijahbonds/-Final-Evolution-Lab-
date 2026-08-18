@@ -12,6 +12,7 @@ import {
   decideContact,
   judgeGatherCommit,
   gatherWindowState,
+  styleFromAirSteer,
   VeniceDunkAttempt,
 } from '../src/core/VeniceDunkLoop';
 
@@ -339,6 +340,37 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       passed,
       actual: `${attempt.outcome?.missReason} make=${attempt.outcome?.isMake}`,
       expected: 'AIR miss at CONTACT',
+    });
+  }
+
+  {
+    const mapOk =
+      styleFromAirSteer(0) === 'REVERSE_TWO_HAND' &&
+      styleFromAirSteer(-0.4) === 'WINDMILL' &&
+      styleFromAirSteer(0.4) === 'TOMAHAWK' &&
+      styleFromAirSteer(0.95) === '360_SPIN' &&
+      styleFromAirSteer(-0.95) === '360_SPIN';
+
+    const attempt = new VeniceDunkAttempt();
+    driveToGather(attempt);
+    commitWhenWindow(attempt);
+    holdPlantFrames(attempt, 10);
+    attempt.releaseTakeoff();
+    let hangStyle = attempt.style;
+    for (let i = 0; i < 80; i++) {
+      attempt.tick(1 / 60);
+      if (attempt.phase === 'HANG') {
+        attempt.inputAir(-0.35);
+        hangStyle = attempt.style;
+        break;
+      }
+    }
+    const passed = mapOk && hangStyle === 'WINDMILL';
+    results.push({
+      name: 'Hang style comes from air steer during the play, not a pre-pick tab',
+      passed,
+      actual: `mapOk=${mapOk} hangStyle=${hangStyle}`,
+      expected: 'center reverse, left windmill, right tomahawk, flick 360; live hang = WINDMILL',
     });
   }
 

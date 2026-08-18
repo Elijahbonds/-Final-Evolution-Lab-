@@ -43,6 +43,10 @@ export interface MixamoAthlete {
   posePlant: (intensity: number) => void;
   poseTakeoff: (intensity: number) => void;
   poseReverseTwoHand: (intensity: number) => void;
+  poseWindmill: (intensity: number) => void;
+  poseTomahawk: (intensity: number) => void;
+  poseThreeSixty: (intensity: number) => void;
+  poseHangStyle: (style: HangStyle, intensity: number) => void;
   poseSit: () => void;
   poseReact: (kind: CrowdReact, intensity?: number) => void;
   resetPose: () => void;
@@ -50,6 +54,7 @@ export interface MixamoAthlete {
 }
 
 export type CrowdReact = 'sit' | 'watch' | 'rise' | 'cheer' | 'miss';
+export type HangStyle = 'REVERSE_TWO_HAND' | 'WINDMILL' | 'TOMAHAWK' | '360_SPIN';
 
 const containers = new WeakMap<Scene, AssetContainer>();
 
@@ -214,6 +219,7 @@ export async function createMixamoAthlete(
 
   const poseReverseTwoHand = (intensity: number) => {
     stopClips();
+    resetPose();
     const i = intensity;
     applyEuler('Spine', -0.2 * i, 0, 0);
     applyEuler('Spine1', -0.15 * i, Math.PI * i, 0);
@@ -229,6 +235,85 @@ export async function createMixamoAthlete(
     applyEuler('RightForeArm', -0.6 * i, 0, -0.2 * i);
     applyEuler('LeftHand', -0.2 * i, 0, 0);
     applyEuler('RightHand', -0.2 * i, 0, 0);
+  };
+
+  /** One-arm chop: right arm high, left tucked. Hang finish from a right cut. */
+  const poseTomahawk = (intensity: number) => {
+    stopClips();
+    resetPose();
+    const i = intensity;
+    applyEuler('Spine', 0.28 * i, -0.22 * i, 0.08 * i);
+    applyEuler('Spine1', 0.18 * i, -0.12 * i, 0);
+    applyEuler('Spine2', 0.14 * i, -0.1 * i, 0);
+    applyEuler('Neck', 0.28 * i, 0.1 * i, 0);
+    applyEuler('Head', 0.2 * i, 0.08 * i, 0);
+    applyEuler('RightShoulder', 0.35 * i, -0.55 * i, 0.1 * i);
+    applyEuler('LeftShoulder', -0.2 * i, 0.35 * i, 0);
+    applyEuler('RightArm', -2.85 * i, -0.15 * i, -0.35 * i);
+    applyEuler('LeftArm', -0.45 * i, 0.85 * i, 0.4 * i);
+    applyEuler('RightForeArm', -0.05 * i, 0, 0);
+    applyEuler('LeftForeArm', -1.35 * i, 0.2 * i, 0);
+    applyEuler('LeftUpLeg', 0.55 * i, 0.22 * i, 0.08 * i);
+    applyEuler('RightUpLeg', 0.08 * i, -0.12 * i, 0);
+    applyEuler('LeftLeg', 0.75 * i, 0, 0);
+    applyEuler('RightLeg', 0.18 * i, 0, 0);
+    applyEuler('LeftFoot', 0.25 * i, 0, 0);
+    applyEuler('RightFoot', 0.12 * i, 0, 0);
+  };
+
+  /** Windmill: left arm sweeps low-to-high across the body. Hang finish from a left cut. */
+  const poseWindmill = (intensity: number) => {
+    stopClips();
+    resetPose();
+    const i = intensity;
+    applyEuler('Spine', 0.22 * i, 0.35 * i, -0.12 * i);
+    applyEuler('Spine1', 0.16 * i, 0.22 * i, 0);
+    applyEuler('Spine2', 0.12 * i, 0.18 * i, 0);
+    applyEuler('Neck', 0.15 * i, -0.15 * i, 0);
+    applyEuler('Head', 0.1 * i, -0.1 * i, 0);
+    applyEuler('LeftShoulder', 0.4 * i, 0.7 * i, 0.2 * i);
+    applyEuler('RightShoulder', -0.15 * i, -0.25 * i, 0);
+    applyEuler('LeftArm', -0.35 * i, 1.55 * i, 1.8 * i);
+    applyEuler('RightArm', -1.65 * i, -0.45 * i, -0.2 * i);
+    applyEuler('LeftForeArm', -0.25 * i, 0.4 * i, 0);
+    applyEuler('RightForeArm', -0.85 * i, 0, 0);
+    applyEuler('LeftUpLeg', 0.18 * i, 0.15 * i, 0);
+    applyEuler('RightUpLeg', 0.62 * i, -0.28 * i, -0.1 * i);
+    applyEuler('LeftLeg', 0.22 * i, 0, 0);
+    applyEuler('RightLeg', 0.88 * i, 0, 0);
+    applyEuler('LeftFoot', 0.15 * i, 0, 0);
+    applyEuler('RightFoot', 0.28 * i, 0, 0);
+  };
+
+  /** 360: body yaw lives on the root; arms wrap the ball for the spin. */
+  const poseThreeSixty = (intensity: number) => {
+    stopClips();
+    resetPose();
+    const i = intensity;
+    applyEuler('Spine', 0.08 * i, 0.45 * i, 0);
+    applyEuler('Spine1', 0.1 * i, 0.2 * i, 0);
+    applyEuler('Spine2', 0.08 * i, 0.12 * i, 0);
+    applyEuler('Neck', 0.05 * i, -0.25 * i, 0);
+    applyEuler('Head', 0.08 * i, -0.15 * i, 0);
+    applyEuler('LeftShoulder', 0.2 * i, 0.55 * i, 0.15 * i);
+    applyEuler('RightShoulder', 0.2 * i, -0.55 * i, -0.15 * i);
+    applyEuler('LeftArm', -1.85 * i, 1.15 * i, 0.55 * i);
+    applyEuler('RightArm', -1.85 * i, -1.15 * i, -0.55 * i);
+    applyEuler('LeftForeArm', -0.95 * i, 0.35 * i, 0);
+    applyEuler('RightForeArm', -0.95 * i, -0.35 * i, 0);
+    applyEuler('LeftUpLeg', 0.42 * i, 0.18 * i, 0.15 * i);
+    applyEuler('RightUpLeg', 0.28 * i, -0.22 * i, -0.12 * i);
+    applyEuler('LeftLeg', 0.48 * i, 0, 0);
+    applyEuler('RightLeg', 0.35 * i, 0, 0);
+    applyEuler('LeftFoot', 0.18 * i, 0, 0);
+    applyEuler('RightFoot', 0.16 * i, 0, 0);
+  };
+
+  const poseHangStyle = (style: HangStyle, intensity: number) => {
+    if (style === 'WINDMILL') poseWindmill(intensity);
+    else if (style === 'TOMAHAWK') poseTomahawk(intensity);
+    else if (style === '360_SPIN') poseThreeSixty(intensity);
+    else poseReverseTwoHand(intensity);
   };
 
   const poseSit = () => {
@@ -301,6 +386,10 @@ export async function createMixamoAthlete(
     posePlant,
     poseTakeoff,
     poseReverseTwoHand,
+    poseWindmill,
+    poseTomahawk,
+    poseThreeSixty,
+    poseHangStyle,
     poseSit,
     poseReact,
     resetPose,
