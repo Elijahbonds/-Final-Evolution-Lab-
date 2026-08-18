@@ -112,8 +112,10 @@ export async function runMeshyVeniceCourtTests(): Promise<
     failSafeThrew = true;
   }
 
-  // Isolated floor check: a degenerate/tiny export (unrelated to the fixture
-  // above) must still be grown UP to regulation size, not left as a sliver.
+  // The mural's mesh is never rescaled — a tiny/degenerate export stays at
+  // its OWN native size (recenter + floor-align only), while the RETURNED
+  // ratio still floors at 1 so a consumer never shrinks the hoop below
+  // real regulation size to match an undersized import.
   const tinyRoot = new TransformNode('tiny_root', scene);
   const tinyMesh = MeshBuilder.CreatePlane('tiny_mesh', { width: 0.5, height: 0.5 }, scene);
   tinyMesh.rotation.x = Math.PI / 2;
@@ -122,8 +124,21 @@ export async function runMeshyVeniceCourtTests(): Promise<
   const tinyScale = fitMeshyPieceToFootprint(tinyPiece, 15.2, 28, 5.0);
   const tinyBounds = tinyRoot.getHierarchyBoundingVectors();
   const tinyFinalWidth = tinyBounds.max.x - tinyBounds.min.x;
-  const growsToFloor = Math.abs(tinyFinalWidth - 15.2) < 0.05 && Math.abs(tinyScale - 1) < 0.01;
+  const trustsNativeScale = Math.abs(tinyFinalWidth - 0.5) < 0.01 && Math.abs(tinyScale - 1) < 0.001;
   tinyPiece.dispose();
+
+  // Big mural, opposite direction: the returned ratio must exceed 1 and
+  // scale with the mural's OWN measured size, not clamp back down.
+  const bigRoot = new TransformNode('big_root', scene);
+  const bigMesh = MeshBuilder.CreatePlane('big_mesh', { width: 40, height: 40 }, scene);
+  bigMesh.rotation.x = Math.PI / 2;
+  bigMesh.parent = bigRoot;
+  const bigPiece: MeshyPiece = { root: bigRoot, meshes: [bigMesh], dispose: () => bigRoot.dispose() };
+  const bigScale = fitMeshyPieceToFootprint(bigPiece, 15.2, 28, 5.0);
+  const bigBounds = bigRoot.getHierarchyBoundingVectors();
+  const bigFinalWidth = bigBounds.max.x - bigBounds.min.x;
+  const scalesToNativeRatio = Math.abs(bigFinalWidth - 40) < 0.01 && Math.abs(bigScale - 40 / 15.2) < 0.01;
+  bigPiece.dispose();
 
   // Camera: idle/runway/gather/plant/takeoff/default pull back proportionally
   // to worldScale; HANG and CONTACT stay exactly as locked regardless of it.
@@ -189,8 +204,11 @@ export async function runMeshyVeniceCourtTests(): Promise<
     modeSrc.includes('worldScaleRef.current = meshy.worldScale') &&
     modeSrc.includes('directedFraming(') &&
     modeSrc.includes('worldScaleRef.current') &&
-    modeSrc.includes("courtRef.current?.rim.scaling.set(s, s, s)") &&
-    modeSrc.includes("courtRef.current?.backboard.scaling.set(s, s, s)") &&
+    modeSrc.includes('rim?.scaling.set(s, s, s)') &&
+    modeSrc.includes('backboard.scaling.set(s, s, s)') &&
+    modeSrc.includes('post.scaling.set(s, s, s)') &&
+    modeSrc.includes('backboard.position.subtract(hoop)') &&
+    modeSrc.includes('post.position.subtract(hoop)') &&
     !modeSrc.includes('court.rim.position.y = court.hoopRestY + snap.rimYOffset * s') &&
     modeSrc.includes('court.rim.position.y = court.hoopRestY + snap.rimYOffset');
 
@@ -202,10 +220,16 @@ export async function runMeshyVeniceCourtTests(): Promise<
       expected: 'court/surround stay near native (~2.6x regulation), worldScale > 1.5 — no forced shrink to 15.2x28/60x60',
     },
     {
-      name: 'A too-small export is still grown up to the regulation floor (not left a sliver)',
-      passed: growsToFloor,
-      actual: `finalWidth=${tinyFinalWidth.toFixed(2)} scale=${tinyScale.toFixed(3)}`,
-      expected: 'a 0.5-unit degenerate plane grows to 15.2 width, uniform scale === 1 return value (grown-to-floor, not "already big")',
+      name: 'Mural mesh is never rescaled — a tiny export stays at its own native size',
+      passed: trustsNativeScale,
+      actual: `finalWidth=${tinyFinalWidth.toFixed(3)} scale=${tinyScale.toFixed(3)}`,
+      expected: 'a 0.5-unit plane stays 0.5 wide after fit (recenter/floor-align only); returned ratio floors at 1',
+    },
+    {
+      name: 'A mural bigger than regulation reports a ratio that tracks its own measured size',
+      passed: scalesToNativeRatio,
+      actual: `finalWidth=${bigFinalWidth.toFixed(2)} scale=${bigScale.toFixed(3)} expected=${(40 / 15.2).toFixed(3)}`,
+      expected: 'a 40-unit plane stays 40 wide; returned ratio === 40/15.2, not clamped down',
     },
     {
       name: 'Idle/runway camera pulls back proportionally to worldScale; HANG/CONTACT ignore it (locked)',
@@ -214,10 +238,10 @@ export async function runMeshyVeniceCourtTests(): Promise<
       expected: 'idle offset grows with worldScale; hang/contact framing identical at scale=1 and scale=2.6',
     },
     {
-      name: 'Rim/backboard/post are scaled visually to match a bigger mural — rim Y stays gameplay-driven',
+      name: 'Hoop fits the mural: rim/backboard/post scale to worldScale and backboard/post reposition off the hoop',
       passed: worldScaleWiring,
       actual: `wired=${worldScaleWiring}`,
-      expected: 'worldScaleRef feeds directedFraming and rim/backboard/post .scaling; rim.position.y keeps hoopRestY + rimYOffset only',
+      expected: 'worldScaleRef feeds directedFraming and rim/backboard/post .scaling; backboard/post reposition via offset-from-hoop * s; rim.position.y keeps hoopRestY + rimYOffset only',
     },
     {
       name: 'hideCheap removes the beige/procedural slab and backdrop once Meshy loads',

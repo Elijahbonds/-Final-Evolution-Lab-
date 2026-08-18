@@ -134,14 +134,28 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
               court: meshy.courtLoaded,
               surround: meshy.surroundLoaded,
             });
-            // The mural reads bigger than regulation — grow the hoop
-            // dressing to match so it does not look tiny next to it.
-            // Position stays gameplay-driven; only visual size changes.
-            if (meshy.worldScale > 1) {
+            // Hoop, backboard, and post fit the mural's own native scale —
+            // not the other way around. Rim Y stays gameplay-driven
+            // (hoopRestY + rimYOffset below); this only sets visual size
+            // and, for backboard/post, repositions them at the SAME
+            // proportional offset from the hoop so a bigger assembly does
+            // not clip through itself.
+            if ((meshy.courtLoaded || meshy.surroundLoaded) && meshy.worldScale > 1) {
               const s = meshy.worldScale;
-              courtRef.current?.rim.scaling.set(s, s, s);
-              courtRef.current?.backboard.scaling.set(s, s, s);
-              scene.getMeshByName('venice_post')?.scaling.set(s, s, s);
+              const rim = courtRef.current?.rim;
+              const backboard = courtRef.current?.backboard;
+              const post = scene.getMeshByName('venice_post');
+              rim?.scaling.set(s, s, s);
+              if (backboard) {
+                backboard.scaling.set(s, s, s);
+                const offset = backboard.position.subtract(hoop);
+                backboard.position.copyFrom(hoop.add(offset.scale(s)));
+              }
+              if (post) {
+                post.scaling.set(s, s, s);
+                const offset = post.position.subtract(hoop);
+                post.position.copyFrom(hoop.add(offset.scale(s)));
+              }
             }
           }
         } catch {

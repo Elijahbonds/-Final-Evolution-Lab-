@@ -49,8 +49,8 @@ export interface VeniceNightCourt {
 
 export const MESHY_COURT_GLB = 'venice-blue-court.glb';
 export const MESHY_SURROUND_GLB = 'venice-court-surround.glb';
-/** Independent of LOCAL_ASSET_TIMEOUT_MS — the mural is best-effort and must not borrow the athlete's hang-required budget. */
-export const MESHY_LOAD_TIMEOUT_MS = 9000;
+/** Independent of LOCAL_ASSET_TIMEOUT_MS — the mural is best-effort and must not borrow the athlete's hang-required budget. A real textured export is bigger than the placeholder, so this budget is generous. */
+export const MESHY_LOAD_TIMEOUT_MS = 20000;
 
 /** Cheap procedural meshes the Meshy court replaces once it loads. Rim/backboard/post stay — gameplay is anchored to them. */
 const CHEAP_COURT_MESH_NAMES = ['venice_court', 'venice_key', 'venice_sand'];
@@ -178,16 +178,14 @@ async function attachMeshyPiece(
 }
 
 /**
- * Recenter a loaded mural on the live court's center/floor and scale it up
- * to AT LEAST the regulation footprint — never down. Vision: shrinking a
- * rich Meshy mural down to the old procedural court's small footprint is
- * what produced the "toy slab, tiny hoop/palms, empty void" complaint.
- * A mural that already ships bigger than regulation stays at its own
- * native size (uniform === 1, no scale applied); a too-small export is
- * grown up to the floor so it is never a degenerate sliver. Returns how
- * much bigger than regulation the mural reads once fit, so the caller can
- * size hoop/athlete/camera dressing to match the mural instead of forcing
- * the mural smaller to match the cheap slab.
+ * The mural is the scale authority — recenter and floor-align it on the
+ * live court's center, but do NOT rescale its mesh. Forcing a rich Meshy
+ * export down (or up) to an assumed 15.2x28 footprint is what produced the
+ * "beige slab, toy hoop" complaint: the mural's own authored scale is
+ * trusted as-is, and everything on OUR side (hoop, backboard, post,
+ * camera) adapts to it via the returned ratio instead. That ratio is
+ * clamped to a floor of 1 — the hoop must never render SMALLER than real
+ * regulation size, only bigger to match an oversized mural.
  */
 export function fitMeshyPieceToFootprint(
   piece: MeshyPiece,
@@ -198,36 +196,28 @@ export function fitMeshyPieceToFootprint(
   const bounds = piece.root.getHierarchyBoundingVectors();
   const width = Math.max(1e-4, bounds.max.x - bounds.min.x);
   const depth = Math.max(1e-4, bounds.max.z - bounds.min.z);
-  const growX = targetWidth / width;
-  const growZ = targetDepth / depth;
-  // Floor, not a forced fit: grow a too-small export up to regulation size,
-  // but never shrink a mural that already reads bigger than the floor.
-  const uniform = Math.max(1, Math.min(growX, growZ));
-  piece.root.scaling.set(uniform, uniform, uniform);
 
-  const scaledBounds = piece.root.getHierarchyBoundingVectors();
-  const centerX = (scaledBounds.max.x + scaledBounds.min.x) / 2;
-  const centerZActual = (scaledBounds.max.z + scaledBounds.min.z) / 2;
-  const floorY = scaledBounds.min.y;
+  const centerX = (bounds.max.x + bounds.min.x) / 2;
+  const centerZActual = (bounds.max.z + bounds.min.z) / 2;
+  const floorY = bounds.min.y;
   piece.root.position.x -= centerX;
   piece.root.position.z += centerZ - centerZActual;
   piece.root.position.y -= floorY;
 
-  const finalWidth = width * uniform;
-  const finalDepth = depth * uniform;
-  // How much bigger than regulation the mural reads once fit — 1 when it
-  // was grown exactly to the floor, > 1 when it kept its own bigger size.
-  return Math.max(finalWidth / targetWidth, finalDepth / targetDepth);
+  // How much bigger than regulation the mural reads at its OWN native
+  // scale — never below 1, so the hoop/camera never shrink below real size.
+  return Math.max(1, width / targetWidth, depth / targetDepth);
 }
 
 /**
  * The Meshy mural is the scale authority, not the cheap procedural slab.
  * Loads court + surround as Files through the real glTF SceneLoader on the
- * LIVE scene, fits each up to (never down from) the regulation footprint,
- * and reports worldScale so hoop, athlete framing, and camera can be
- * authored against the mural's own bounds. Best-effort: any failure
- * (timeout, missing file, disposed scene) resolves with courtLoaded /
- * surroundLoaded false — it never throws, and never disposes the scene.
+ * LIVE scene, recenters each at its OWN native scale (never rescaled), and
+ * reports worldScale so hoop, backboard, post, and camera can be authored
+ * against the mural's own bounds instead of forcing the mural to match a
+ * small assumed footprint. Best-effort: any failure (timeout, missing
+ * file, disposed scene) resolves with courtLoaded / surroundLoaded false —
+ * it never throws, and never disposes the scene.
  */
 export async function loadMeshyVeniceCourt(
   scene: Scene,
