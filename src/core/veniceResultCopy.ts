@@ -18,18 +18,21 @@ export const VENICE_RESULT_COPY = {
 
 export type CaseMissReason = 'EARLY' | 'LATE' | 'AIR' | 'SHORT' | 'RIM_OUT' | 'MUSHY_PLANT' | null;
 
-/** Plant-miss headline only on LATE / EARLY / MUSHY. AIR and RIM_OUT use their locked line. */
+/** Plant-miss headline only on LATE / EARLY / MUSHY. SHORT is AIR. */
 export function caseMissHeadline(reason: CaseMissReason): string {
-  if (reason === 'AIR') return VENICE_RESULT_COPY.missSubAir;
+  if (reason === 'LATE' || reason === 'EARLY' || reason === 'MUSHY_PLANT') {
+    return VENICE_RESULT_COPY.missHeadline;
+  }
   if (reason === 'RIM_OUT') return VENICE_RESULT_COPY.missSubRimOut;
-  return VENICE_RESULT_COPY.missHeadline;
+  if (reason === 'AIR' || reason === 'SHORT') return VENICE_RESULT_COPY.missSubAir;
+  return VENICE_RESULT_COPY.missSubAir;
 }
 
 export function caseMissSub(reason: CaseMissReason): string {
   if (reason === 'LATE') return VENICE_RESULT_COPY.missSubLate;
   if (reason === 'EARLY') return VENICE_RESULT_COPY.missSubEarly;
   if (reason === 'MUSHY_PLANT') return VENICE_RESULT_COPY.missSubMushy;
-  if (reason === 'AIR') return VENICE_RESULT_COPY.missSubAir;
+  if (reason === 'AIR' || reason === 'SHORT') return VENICE_RESULT_COPY.missSubAir;
   if (reason === 'RIM_OUT') return VENICE_RESULT_COPY.missSubRimOut;
   return '';
 }

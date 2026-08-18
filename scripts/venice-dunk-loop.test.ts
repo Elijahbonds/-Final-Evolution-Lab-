@@ -739,9 +739,13 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       caseMissHeadline('EARLY') === plantHead &&
       caseMissHeadline('MUSHY_PLANT') === plantHead &&
       caseMissHeadline('AIR') === airLine &&
+      caseMissHeadline('SHORT') === airLine &&
+      caseMissHeadline('SHORT') !== plantHead &&
       caseMissHeadline('RIM_OUT') === rimLine &&
       caseMissHeadline('AIR') !== plantHead &&
       caseMissHeadline('RIM_OUT') !== plantHead &&
+      caseMissSub('SHORT') === airLine &&
+      caseMissSub('SHORT') !== '' &&
       caseMissSub('EARLY') !== lateLine &&
       caseMissSub('MUSHY_PLANT') !== lateLine &&
       c.makeHeadline === "That's the Bonds Bounce." &&
@@ -758,8 +762,8 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     results.push({
       name: 'Miss routing: locked lines only; plant headline on LATE/EARLY/MUSHY; CASE not skipped',
       passed: routed,
-      actual: `late=${late.outcome?.missReason}/${caseMissHeadline('LATE')}/${caseMissSub('LATE')} early=${mash.outcome?.missReason}/${caseMissSub('EARLY')} mushy=${mushy.outcome?.missReason}/${caseMissSub('MUSHY_PLANT')} air=${air.outcome?.missReason}/${caseMissHeadline('AIR')} rim=${rim.outcome?.missReason}/${caseMissHeadline('RIM_OUT')}`,
-      expected: 'plant headline on LATE/EARLY/MUSHY; exact locked lines; AIR/RIM_OUT own headline+line; BLOWN sets CASE',
+      actual: `late=${late.outcome?.missReason}/${caseMissHeadline('LATE')}/${caseMissSub('LATE')} early=${mash.outcome?.missReason}/${caseMissSub('EARLY')} mushy=${mushy.outcome?.missReason}/${caseMissSub('MUSHY_PLANT')} air=${air.outcome?.missReason}/${caseMissHeadline('AIR')} short=${caseMissHeadline('SHORT')}/${caseMissSub('SHORT')} rim=${rim.outcome?.missReason}/${caseMissHeadline('RIM_OUT')}`,
+      expected: 'plant headline on LATE/EARLY/MUSHY only; SHORT uses AIR pair; locked lines unchanged; BLOWN sets CASE',
     });
   }
 
