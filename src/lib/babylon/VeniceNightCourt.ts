@@ -271,8 +271,6 @@ export async function buildVeniceNightCourt(
     steel.diffuseColor = new Color3(0.16, 0.16, 0.18);
     postL.material = steel;
     postR.material = steel;
-    shadowGen?.addShadowCaster(postL);
-    shadowGen?.addShadowCaster(postR);
     return plane;
   };
 
@@ -289,7 +287,6 @@ export async function buildVeniceNightCourt(
     bench.material = bleacherMat;
     bench.parent = bleacherRoot;
     bench.receiveShadows = true;
-    shadowGen?.addShadowCaster(bench);
   }
 
   const crowd: MixamoAthlete[] = [];

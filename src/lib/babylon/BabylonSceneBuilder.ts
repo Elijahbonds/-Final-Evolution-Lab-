@@ -22,6 +22,7 @@ export interface BabylonSceneContext {
   canvas: HTMLCanvasElement;
   shadowGenerator?: ShadowGenerator;
   celPostProcess?: PostProcess;
+  dispose: () => void;
 }
 
 // Dark-Blue Ink Outline Color Palette Constants (Arc System Works / Anime Style)
@@ -116,9 +117,24 @@ export function setupCelShadingPipeline(scene: Scene, camera: ArcRotateCamera): 
   return postProcess;
 }
 
-export function createBabylonContext(canvas: HTMLCanvasElement): BabylonSceneContext {
-  const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+export function createBabylonContext(
+  canvas: HTMLCanvasElement,
+  options?: { previewSafe?: boolean }
+): BabylonSceneContext {
+  const previewSafe = !!options?.previewSafe;
+  const engine = new Engine(canvas, !previewSafe, {
+    preserveDrawingBuffer: false,
+    stencil: !previewSafe,
+    antialias: !previewSafe,
+    adaptToDeviceRatio: false,
+    powerPreference: previewSafe ? 'low-power' : 'default',
+    failIfMajorPerformanceCaveat: false,
+  });
+  if (previewSafe) {
+    engine.setHardwareScalingLevel(Math.max(1.35, engine.getHardwareScalingLevel()));
+  }
   const scene = new Scene(engine);
+  scene.skipPointerMovePicking = true;
   scene.clearColor = new Color4(0.07, 0.11, 0.19, 1.0);
 
   // Camera setup
@@ -153,20 +169,40 @@ export function createBabylonContext(canvas: HTMLCanvasElement): BabylonSceneCon
   rimLight.intensity = 0.85;
   rimLight.diffuse = new Color3(0.52, 0.78, 1.0);
 
-  const shadowGen = new ShadowGenerator(2048, dirLight);
-  shadowGen.useBlurExponentialShadowMap = true;
-  shadowGen.blurKernel = 16;
-  shadowGen.bias = 0.0005;
+  const shadowGen = new ShadowGenerator(previewSafe ? 512 : 2048, dirLight);
+  if (previewSafe) {
+    shadowGen.useBlurExponentialShadowMap = false;
+    shadowGen.bias = 0.001;
+  } else {
+    shadowGen.useBlurExponentialShadowMap = true;
+    shadowGen.blurKernel = 16;
+    shadowGen.bias = 0.0005;
+  }
 
-  // Attach the Cel-Shading & Dark-Blue Ink Outline Shader Post-Processing Pipeline
-  const celPostProcess = setupCelShadingPipeline(scene, camera);
+  const celPostProcess = previewSafe ? undefined : setupCelShadingPipeline(scene, camera);
 
-  // Resize handling
-  window.addEventListener('resize', () => {
-    engine.resize();
-  });
+  let resizeTimer = 0;
+  const onResize = () => {
+    if (engine.isDisposed) return;
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      resizeTimer = 0;
+      if (!engine.isDisposed) engine.resize();
+    }, 200);
+  };
+  window.addEventListener('resize', onResize);
 
-  return { engine, scene, camera, canvas, shadowGenerator: shadowGen, celPostProcess };
+  const dispose = () => {
+    window.removeEventListener('resize', onResize);
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    if (!engine.isDisposed) {
+      engine.stopRenderLoop();
+      scene.dispose();
+      engine.dispose();
+    }
+  };
+
+  return { engine, scene, camera, canvas, shadowGenerator: shadowGen, celPostProcess, dispose };
 }
 
 /**

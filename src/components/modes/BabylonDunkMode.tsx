@@ -55,7 +55,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    const ctx = createBabylonContext(canvasRef.current);
+    const ctx = createBabylonContext(canvasRef.current, { previewSafe: true });
     const { scene, shadowGenerator, camera, engine } = ctx;
     camera.detachControl();
 
@@ -183,16 +183,22 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     });
 
     engine.runRenderLoop(() => {
-      scene.render();
+      try {
+        if (disposed || engine.isDisposed) return;
+        scene.render();
+      } catch {
+        /* keep the iframe alive if a frame throws */
+      }
     });
 
     return () => {
       disposed = true;
       scene.onBeforeRenderObservable.remove(observer);
       athleteRef.current?.dispose();
-      engine.stopRenderLoop();
-      scene.dispose();
-      engine.dispose();
+      athleteRef.current = null;
+      courtRef.current = null;
+      dunkCamRef.current = null;
+      ctx.dispose();
     };
   }, []);
 

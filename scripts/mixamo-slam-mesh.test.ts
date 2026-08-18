@@ -75,7 +75,10 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
         loader.includes('fetchLocalText') &&
         loader.includes('isRemoteAssetUrl') &&
         modeSrc.includes('spectators: false') &&
+        modeSrc.includes('previewSafe: true') &&
         modeSrc.includes('withTimeout') &&
+        src.includes('anims.run.isPlaying') &&
+        !src.includes('group.start(false, 1, 0, group.to)') &&
         isRemoteAssetUrl('https://www.mixamo.com/foo') &&
         !isRemoteAssetUrl(`/assets/${LOCAL_DUNKER_GLB}`),
       actual: `localFetch=${src.includes('fetchLocalBytes')} timeout=${src.includes('withTimeout')} sceneUrl=${src.includes("LoadAssetContainerAsync(rootUrl, 'dunker-transformed.glb'")} remoteMixamo=${isRemoteAssetUrl('https://www.mixamo.com/foo')} specsOff=${modeSrc.includes('spectators: false')}`,

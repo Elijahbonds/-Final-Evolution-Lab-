@@ -117,7 +117,13 @@ export async function createMixamoAthlete(
     dunkBvhUrl?: string;
   }
 ): Promise<MixamoAthlete> {
+  if (scene.isDisposed) {
+    throw new Error('Mixamo dunker scene disposed');
+  }
   const container = await loadMixamoContainer(scene, options?.file ?? options?.rootUrl ?? '/assets/');
+  if (scene.isDisposed) {
+    throw new Error('Mixamo dunker scene disposed');
+  }
   const instance = container.instantiateModelsToScene((n) => `${name}_${n}`, false, {
     doNotInstantiate: true,
   });
@@ -230,17 +236,26 @@ export async function createMixamoAthlete(
   };
 
   const playRun = (rate = 1) => {
-    stopClips();
-    if (anims.run) {
-      anims.run.start(true, rate);
+    stopSlamClips();
+    anims.walk?.stop();
+    anims.idle?.stop();
+    anims.tpose?.stop();
+    if (!anims.run) return;
+    if (anims.run.isPlaying) {
+      anims.run.speedRatio = rate;
+      return;
     }
+    anims.run.start(true, rate);
   };
 
   const playIdle = () => {
-    stopClips();
-    if (anims.idle) {
-      anims.idle.start(true, 1);
-    }
+    stopSlamClips();
+    anims.run?.stop();
+    anims.walk?.stop();
+    anims.tpose?.stop();
+    if (!anims.idle) return;
+    if (anims.idle.isPlaying) return;
+    anims.idle.start(true, 1);
   };
 
   const writeLocal = (bone: Bone, q: Quaternion) => {
@@ -289,9 +304,6 @@ export async function createMixamoAthlete(
     stopLocoClips();
     const group = anims.dunkTake;
     if (!group) return;
-    group.start(false, 1, 0, group.to);
-    group.goToFrame(frame);
-    group.pause();
     applyGroupFrame(group, frame, bones);
     flushPose();
   };
