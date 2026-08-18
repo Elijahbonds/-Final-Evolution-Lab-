@@ -21,8 +21,10 @@ import {
   TransformNode,
   Space,
   ShadowGenerator,
+  Axis,
 } from '@babylonjs/core';
 import { sanitizeBoneName } from '../rigSanitizer';
+import { HangStyle, SLAM_SPINS, SlamMap } from './slamSilhouettes';
 
 export interface MixamoAthlete {
   root: TransformNode;
@@ -54,7 +56,7 @@ export interface MixamoAthlete {
 }
 
 export type CrowdReact = 'sit' | 'watch' | 'rise' | 'cheer' | 'miss';
-export type HangStyle = 'REVERSE_TWO_HAND' | 'WINDMILL' | 'TOMAHAWK' | '360_SPIN';
+export type { HangStyle } from './slamSilhouettes';
 
 const containers = new WeakMap<Scene, AssetContainer>();
 
@@ -174,146 +176,104 @@ export async function createMixamoAthlete(
     }
   };
 
+  const writeLocal = (bone: Bone, q: Quaternion) => {
+    bone.setRotationQuaternion(q, Space.LOCAL);
+    const node = bone.getTransformNode();
+    if (node) {
+      if (!node.rotationQuaternion) node.rotationQuaternion = q.clone();
+      else node.rotationQuaternion.copyFrom(q);
+    }
+  };
+
   const applyEuler = (boneName: string, x: number, y: number, z: number) => {
     const bone = bones.get(boneName);
     const bind = rest.get(boneName);
     if (!bone || !bind) return;
     const delta = Quaternion.FromEulerAngles(x, y, z);
-    bone.setRotationQuaternion(bind.multiply(delta), Space.LOCAL);
+    writeLocal(bone, bind.multiply(delta));
   };
 
   const resetPose = () => {
     for (const [name, bone] of bones) {
       const bind = rest.get(name);
-      if (bind) bone.setRotationQuaternion(bind.clone(), Space.LOCAL);
+      if (bind) writeLocal(bone, bind.clone());
     }
     basketball.position.set(0.04, 0.08, 0.02);
   };
 
-  const posePlant = (intensity: number) => {
+  /**
+   * Drive the skinned mesh from T-pose bind with world-space spins.
+   * Local Euler-on-bind was a spine twist on a T-pose — the mesh never slammed.
+   */
+  const applyWorldSlam = (map: SlamMap, intensity: number) => {
     stopClips();
-    const i = intensity;
-    applyEuler('Spine', 0.28 * i, 0, 0);
-    applyEuler('Spine1', 0.18 * i, 0, 0);
-    applyEuler('LeftUpLeg', 0.85 * i, 0.08 * i, 0);
-    applyEuler('RightUpLeg', 0.95 * i, -0.06 * i, 0);
-    applyEuler('LeftLeg', 1.15 * i, 0, 0);
-    applyEuler('RightLeg', 1.25 * i, 0, 0);
-    applyEuler('LeftArm', 0.35 * i, 0, 0.55 * i);
-    applyEuler('RightArm', 0.45 * i, 0, -0.65 * i);
+    resetPose();
+    const i = Math.max(0, Math.min(1, intensity));
+    for (const [name, spin] of Object.entries(map)) {
+      const bone = bones.get(name);
+      const bind = rest.get(name);
+      if (!bone || !bind) continue;
+      writeLocal(bone, bind.clone());
+      if (spin.x) bone.rotate(Axis.X, spin.x * i, Space.WORLD);
+      if (spin.y) bone.rotate(Axis.Y, spin.y * i, Space.WORLD);
+      if (spin.z) bone.rotate(Axis.Z, spin.z * i, Space.WORLD);
+      const q = bone.getRotationQuaternion(Space.LOCAL);
+      if (q) writeLocal(bone, q);
+    }
+    skeleton?.computeAbsoluteTransforms();
+  };
+
+  const posePlant = (intensity: number) => {
+    applyWorldSlam(
+      {
+        Spine: { x: 0.32, y: 0, z: 0 },
+        Spine1: { x: 0.2, y: 0, z: 0 },
+        LeftUpLeg: { x: 0.95, y: 0.08, z: 0 },
+        RightUpLeg: { x: 1.05, y: -0.06, z: 0 },
+        LeftLeg: { x: 1.15, y: 0, z: 0 },
+        RightLeg: { x: 1.22, y: 0, z: 0 },
+        LeftArm: { x: 0.25, y: 0.15, z: 0.45 },
+        RightArm: { x: 0.28, y: -0.15, z: -0.5 },
+      },
+      intensity
+    );
   };
 
   const poseTakeoff = (intensity: number) => {
-    stopClips();
-    const i = intensity;
-    applyEuler('Spine', -0.12 * i, 0, 0);
-    applyEuler('LeftUpLeg', -0.15 * i, 0, 0);
-    applyEuler('RightUpLeg', 0.55 * i, 0, 0);
-    applyEuler('LeftLeg', 0.2 * i, 0, 0);
-    applyEuler('RightLeg', 0.85 * i, 0, 0);
-    applyEuler('LeftArm', -1.4 * i, 0.2 * i, 0.4 * i);
-    applyEuler('RightArm', -1.55 * i, -0.15 * i, -0.35 * i);
-    applyEuler('LeftForeArm', -0.35 * i, 0, 0);
-    applyEuler('RightForeArm', -0.4 * i, 0, 0);
+    applyWorldSlam(
+      {
+        Spine: { x: -0.14, y: 0, z: 0 },
+        LeftUpLeg: { x: -0.12, y: 0, z: 0 },
+        RightUpLeg: { x: 0.72, y: 0, z: 0 },
+        LeftLeg: { x: 0.22, y: 0, z: 0 },
+        RightLeg: { x: 0.85, y: 0, z: 0 },
+        LeftArm: { x: 0.15, y: 0.12, z: 1.15 },
+        RightArm: { x: 0.18, y: -0.12, z: -1.22 },
+        LeftForeArm: { x: -0.28, y: 0, z: 0 },
+        RightForeArm: { x: -0.32, y: 0, z: 0 },
+      },
+      intensity
+    );
   };
 
   const poseReverseTwoHand = (intensity: number) => {
-    stopClips();
-    resetPose();
-    const i = intensity;
-    applyEuler('Spine', -0.2 * i, 0, 0);
-    applyEuler('Spine1', -0.15 * i, Math.PI * i, 0);
-    applyEuler('Spine2', -0.1 * i, 0, 0);
-    applyEuler('Hips', 0.08 * i, Math.PI * i, 0);
-    applyEuler('LeftUpLeg', 1.05 * i, 0.12 * i, 0);
-    applyEuler('RightUpLeg', 1.15 * i, -0.1 * i, 0);
-    applyEuler('LeftLeg', 1.35 * i, 0, 0);
-    applyEuler('RightLeg', 1.45 * i, 0, 0);
-    applyEuler('LeftArm', -2.35 * i, 0.35 * i, 0.55 * i);
-    applyEuler('RightArm', -2.45 * i, -0.3 * i, -0.5 * i);
-    applyEuler('LeftForeArm', -0.55 * i, 0, 0.2 * i);
-    applyEuler('RightForeArm', -0.6 * i, 0, -0.2 * i);
-    applyEuler('LeftHand', -0.2 * i, 0, 0);
-    applyEuler('RightHand', -0.2 * i, 0, 0);
+    applyWorldSlam(SLAM_SPINS.REVERSE_TWO_HAND, intensity);
   };
 
-  /** One-arm chop: right arm high, left tucked. Hang finish from a right cut. */
   const poseTomahawk = (intensity: number) => {
-    stopClips();
-    resetPose();
-    const i = intensity;
-    applyEuler('Spine', 0.28 * i, -0.22 * i, 0.08 * i);
-    applyEuler('Spine1', 0.18 * i, -0.12 * i, 0);
-    applyEuler('Spine2', 0.14 * i, -0.1 * i, 0);
-    applyEuler('Neck', 0.28 * i, 0.1 * i, 0);
-    applyEuler('Head', 0.2 * i, 0.08 * i, 0);
-    applyEuler('RightShoulder', 0.35 * i, -0.55 * i, 0.1 * i);
-    applyEuler('LeftShoulder', -0.2 * i, 0.35 * i, 0);
-    applyEuler('RightArm', -2.85 * i, -0.15 * i, -0.35 * i);
-    applyEuler('LeftArm', -0.45 * i, 0.85 * i, 0.4 * i);
-    applyEuler('RightForeArm', -0.05 * i, 0, 0);
-    applyEuler('LeftForeArm', -1.35 * i, 0.2 * i, 0);
-    applyEuler('LeftUpLeg', 0.55 * i, 0.22 * i, 0.08 * i);
-    applyEuler('RightUpLeg', 0.08 * i, -0.12 * i, 0);
-    applyEuler('LeftLeg', 0.75 * i, 0, 0);
-    applyEuler('RightLeg', 0.18 * i, 0, 0);
-    applyEuler('LeftFoot', 0.25 * i, 0, 0);
-    applyEuler('RightFoot', 0.12 * i, 0, 0);
+    applyWorldSlam(SLAM_SPINS.TOMAHAWK, intensity);
   };
 
-  /** Windmill: left arm sweeps low-to-high across the body. Hang finish from a left cut. */
   const poseWindmill = (intensity: number) => {
-    stopClips();
-    resetPose();
-    const i = intensity;
-    applyEuler('Spine', 0.22 * i, 0.35 * i, -0.12 * i);
-    applyEuler('Spine1', 0.16 * i, 0.22 * i, 0);
-    applyEuler('Spine2', 0.12 * i, 0.18 * i, 0);
-    applyEuler('Neck', 0.15 * i, -0.15 * i, 0);
-    applyEuler('Head', 0.1 * i, -0.1 * i, 0);
-    applyEuler('LeftShoulder', 0.4 * i, 0.7 * i, 0.2 * i);
-    applyEuler('RightShoulder', -0.15 * i, -0.25 * i, 0);
-    applyEuler('LeftArm', -0.35 * i, 1.55 * i, 1.8 * i);
-    applyEuler('RightArm', -1.65 * i, -0.45 * i, -0.2 * i);
-    applyEuler('LeftForeArm', -0.25 * i, 0.4 * i, 0);
-    applyEuler('RightForeArm', -0.85 * i, 0, 0);
-    applyEuler('LeftUpLeg', 0.18 * i, 0.15 * i, 0);
-    applyEuler('RightUpLeg', 0.62 * i, -0.28 * i, -0.1 * i);
-    applyEuler('LeftLeg', 0.22 * i, 0, 0);
-    applyEuler('RightLeg', 0.88 * i, 0, 0);
-    applyEuler('LeftFoot', 0.15 * i, 0, 0);
-    applyEuler('RightFoot', 0.28 * i, 0, 0);
+    applyWorldSlam(SLAM_SPINS.WINDMILL, intensity);
   };
 
-  /** 360: body yaw lives on the root; arms wrap the ball for the spin. */
   const poseThreeSixty = (intensity: number) => {
-    stopClips();
-    resetPose();
-    const i = intensity;
-    applyEuler('Spine', 0.08 * i, 0.45 * i, 0);
-    applyEuler('Spine1', 0.1 * i, 0.2 * i, 0);
-    applyEuler('Spine2', 0.08 * i, 0.12 * i, 0);
-    applyEuler('Neck', 0.05 * i, -0.25 * i, 0);
-    applyEuler('Head', 0.08 * i, -0.15 * i, 0);
-    applyEuler('LeftShoulder', 0.2 * i, 0.55 * i, 0.15 * i);
-    applyEuler('RightShoulder', 0.2 * i, -0.55 * i, -0.15 * i);
-    applyEuler('LeftArm', -1.85 * i, 1.15 * i, 0.55 * i);
-    applyEuler('RightArm', -1.85 * i, -1.15 * i, -0.55 * i);
-    applyEuler('LeftForeArm', -0.95 * i, 0.35 * i, 0);
-    applyEuler('RightForeArm', -0.95 * i, -0.35 * i, 0);
-    applyEuler('LeftUpLeg', 0.42 * i, 0.18 * i, 0.15 * i);
-    applyEuler('RightUpLeg', 0.28 * i, -0.22 * i, -0.12 * i);
-    applyEuler('LeftLeg', 0.48 * i, 0, 0);
-    applyEuler('RightLeg', 0.35 * i, 0, 0);
-    applyEuler('LeftFoot', 0.18 * i, 0, 0);
-    applyEuler('RightFoot', 0.16 * i, 0, 0);
+    applyWorldSlam(SLAM_SPINS['360_SPIN'], intensity);
   };
 
   const poseHangStyle = (style: HangStyle, intensity: number) => {
-    if (style === 'WINDMILL') poseWindmill(intensity);
-    else if (style === 'TOMAHAWK') poseTomahawk(intensity);
-    else if (style === '360_SPIN') poseThreeSixty(intensity);
-    else poseReverseTwoHand(intensity);
+    applyWorldSlam(SLAM_SPINS[style], intensity);
   };
 
   const poseSit = () => {

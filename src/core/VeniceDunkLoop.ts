@@ -56,6 +56,21 @@ export const PHASE_SECONDS = {
   LAND: 0.34,
 } as const;
 
+/** Hang fall after apex. 10–22cm / 0.5s (~1.3 m/s²) reads as a hover. */
+export const HANG_FALL_G = 6.8;
+
+/**
+ * Ballistic drop from this apex over hang time. Never lifts. Keeps hang-end
+ * above the court so a short plant does not bury the mesh.
+ */
+export function hangDropFromApex(apexY: number, compression01 = 0.7): number {
+  const desired =
+    0.5 * HANG_FALL_G * PHASE_SECONDS.HANG * PHASE_SECONDS.HANG +
+    (1 - clamp01(compression01)) * 0.08;
+  const ceiling = Math.max(0.28, apexY - 0.12);
+  return Math.min(desired, ceiling);
+}
+
 export const PLANT_MARK_Z = -0.7;
 export const GATHER_WINDOW_BEFORE = 0.55;
 export const GATHER_WINDOW_AFTER = 0.28;
@@ -222,6 +237,7 @@ export class VeniceDunkAttempt {
   gatherMiss: GatherCommit | null = null;
   plantHolding = false;
   airFinish: AirFinish = 'NONE';
+  airHeld = false;
   airSteer = 0;
   style: DunkStyle = 'REVERSE_TWO_HAND';
   trunkLeanDeg = 0;
@@ -260,6 +276,7 @@ export class VeniceDunkAttempt {
     this.gatherMiss = null;
     this.plantHolding = false;
     this.airFinish = 'NONE';
+    this.airHeld = false;
     this.airSteer = 0;
     this.style = 'REVERSE_TWO_HAND';
     this.trunkLeanDeg = 0;
@@ -316,6 +333,7 @@ export class VeniceDunkAttempt {
     if (this.phase !== 'TAKEOFF' && this.phase !== 'HANG') return;
     this.airSteer = Math.max(-1, Math.min(1, replace ? steerX : this.airSteer + steerX));
     this.style = styleFromAirSteer(this.airSteer);
+    this.airHeld = true;
 
     if (this.phase === 'HANG') {
       this.airFinish = judgeAirFinish(this.hangElapsed / PHASE_SECONDS.HANG, true);
@@ -376,6 +394,10 @@ export class VeniceDunkAttempt {
       }
       case 'HANG': {
         this.hangElapsed += dt;
+        const hangP = this.hangElapsed / PHASE_SECONDS.HANG;
+        if (this.airHeld && this.airFinish === 'NONE' && hangP >= 0.28) {
+          this.airFinish = 'WINDOW';
+        }
         if (this.hangElapsed >= PHASE_SECONDS.HANG) {
           this.hangElapsed = PHASE_SECONDS.HANG;
           this.phase = 'CONTACT';
@@ -418,6 +440,7 @@ export class VeniceDunkAttempt {
     this.phase = 'TAKEOFF';
     this.takeoffElapsed = 0;
     this.airFinish = 'NONE';
+    this.airHeld = false;
   }
 
   private resolveContact(): void {
@@ -441,8 +464,8 @@ export class VeniceDunkAttempt {
   }
 
   extraHang(): number {
-    if (!this.plant) return 0.16;
-    return 0.10 + (1 - this.plant.compression01) * 0.12;
+    const compression = this.plant?.compression01 ?? 0.7;
+    return hangDropFromApex(this.takeoffApexY || 0.7, compression);
   }
 
   rootY(): number {

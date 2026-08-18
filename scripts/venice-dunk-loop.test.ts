@@ -6,6 +6,8 @@
 import {
   EASTBAY_MASTER_STANDARD,
   hangWorldY,
+  hangDropFromApex,
+  HANG_FALL_G,
   takeoffWorldY,
   rimDeflectionY,
   metricsFromPlant,
@@ -15,6 +17,7 @@ import {
   styleFromAirSteer,
   VeniceDunkAttempt,
 } from '../src/core/VeniceDunkLoop';
+import { slamArmSignature } from '../src/lib/babylon/slamSilhouettes';
 
 export interface TestResult {
   name: string;
@@ -371,6 +374,87 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       passed,
       actual: `mapOk=${mapOk} hangStyle=${hangStyle}`,
       expected: 'center reverse, left windmill, right tomahawk, flick 360; live hang = WINDMILL',
+    });
+  }
+
+  {
+    const reverse = slamArmSignature('REVERSE_TWO_HAND');
+    const mill = slamArmSignature('WINDMILL');
+    const hawk = slamArmSignature('TOMAHAWK');
+    const spin = slamArmSignature('360_SPIN');
+    const passed =
+      new Set([reverse, mill, hawk, spin]).size === 4 &&
+      !reverse.includes('3.14') &&
+      !mill.includes('3.14');
+    results.push({
+      name: 'Slam silhouettes differ by style and are not a 180 spine twist',
+      passed,
+      actual: `${reverse} // ${mill} // ${hawk} // ${spin}`,
+      expected: 'four distinct arm world-spins, no PI yaw',
+    });
+  }
+
+  {
+    const drop = hangDropFromApex(1.06, 0.81);
+    const hover = 0.10 + (1 - 0.81) * 0.12;
+    const y0 = hangWorldY(0, 1.06, drop);
+    const y1 = hangWorldY(1, 1.06, drop);
+    const accel = (2 * drop) / (0.5 * 0.5);
+    const passed =
+      drop >= 0.55 &&
+      drop > hover + 0.25 &&
+      Math.abs(y0 - 1.06) < 1e-9 &&
+      y1 < y0 - 0.4 &&
+      accel >= 4.5 &&
+      HANG_FALL_G >= 6;
+    results.push({
+      name: 'Hang drop is a real fall from apex, not a 10-22cm hover',
+      passed,
+      actual: `drop=${drop.toFixed(3)} hoverWas=${hover.toFixed(3)} y0=${y0.toFixed(3)} y1=${y1.toFixed(3)} a=${accel.toFixed(2)}`,
+      expected: 'drop >= 0.55m from apex, hang(0)===apex, accel >= 4.5',
+    });
+  }
+
+  {
+    const attempt = new VeniceDunkAttempt();
+    driveToGather(attempt);
+    commitWhenWindow(attempt);
+    holdPlantFrames(attempt, 10);
+    attempt.releaseTakeoff();
+    let y0: number | null = null;
+    let y1 = 0;
+    let apex = 0;
+    let rose = false;
+    let last = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < 80; i++) {
+      attempt.tick(1 / 60);
+      if (attempt.phase === 'TAKEOFF') attempt.inputAir(0, true);
+      if (attempt.phase === 'HANG') {
+        const y = attempt.rootY();
+        if (y0 === null) {
+          y0 = y;
+          apex = attempt.takeoffApexY;
+          last = y;
+        } else {
+          if (y > last + 1e-6) rose = true;
+          last = y;
+          y1 = y;
+        }
+      }
+      if (attempt.outcome) break;
+    }
+    const drop = (y0 ?? 0) - y1;
+    const passed =
+      y0 !== null &&
+      Math.abs((y0 ?? 0) - apex) < 0.08 &&
+      !rose &&
+      drop >= 0.4 &&
+      attempt.outcome?.isMake === true;
+    results.push({
+      name: 'Live hang falls from apex (>=40cm) and a takeoff press still finishes',
+      passed,
+      actual: `drop=${drop.toFixed(3)} hang0=${y0?.toFixed(3)} apex=${apex.toFixed(3)} rose=${rose} make=${attempt.outcome?.isMake}`,
+      expected: 'continuous apex, fall >= 0.40m, takeoff press → make',
     });
   }
 

@@ -195,14 +195,13 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       }
       if (snap.phase === 'HANG' || snap.phase === 'CONTACT') {
         const p = snap.phase === 'HANG' ? attempt.hangElapsed / 0.5 : 1;
-        const hangI = Math.min(1, 0.45 + p * 0.55);
-        athlete.poseHangStyle(snap.style, hangI);
+        athlete.poseHangStyle(snap.style, 1);
         if (snap.style === '360_SPIN') {
           athlete.root.rotation.y = p * Math.PI * 2;
         } else if (snap.style === 'WINDMILL') {
-          athlete.root.rotation.y = Math.PI * 0.62;
+          athlete.root.rotation.y = 0.48;
         } else if (snap.style === 'TOMAHAWK') {
-          athlete.root.rotation.y = 0.18;
+          athlete.root.rotation.y = 0.06;
         } else {
           athlete.root.rotation.y = Math.PI;
         }
@@ -423,7 +422,54 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         </div>
       )}
 
-      {/* No phase-name stamp. No style tabs. No charge bar. The court is the play. */}
+      {phase === 'IDLE' || phase === 'RUNWAY' || phase === 'GATHER' || phase === 'PLANT' ? (
+        <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
+          <button
+            aria-label="hold"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              handlePointerDown(e);
+            }}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={() => {
+              if (pointerDownRef.current) handlePointerUp();
+            }}
+            className="w-[4.5rem] h-[4.5rem] rounded-full bg-white/10 border-2 border-white/35 shadow-[0_0_24px_rgba(255,255,255,0.12)] active:scale-95 active:bg-white/20"
+          />
+        </div>
+      ) : null}
+
+      {(phase === 'TAKEOFF' || phase === 'HANG') && (
+        <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 w-[min(92%,28rem)] pointer-events-auto">
+          <div
+            className="flex h-16 rounded-2xl overflow-hidden border-2 border-white/35 bg-black/45"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const nx = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+              attemptRef.current.inputAir(Math.max(-1, Math.min(1, nx)), true);
+              pointerDownRef.current = true;
+              lastPointerXRef.current = e.clientX;
+            }}
+            onPointerMove={(e) => {
+              if (!pointerDownRef.current) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const nx = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+              attemptRef.current.inputAir(Math.max(-1, Math.min(1, nx)), true);
+            }}
+            onPointerUp={() => {
+              pointerDownRef.current = false;
+              lastPointerXRef.current = null;
+            }}
+          >
+            <div className="flex-1 bg-[#00F2FF]/10" />
+            <div className="w-px bg-white/25" />
+            <div className="flex-[1.15] bg-white/10" />
+            <div className="w-px bg-white/25" />
+            <div className="flex-1 bg-[#00F2FF]/10" />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
