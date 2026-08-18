@@ -5,7 +5,7 @@
  */
 import './venice-place-canvas-polyfill.ts';
 import { readFileSync } from 'node:fs';
-import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
+import { MeshBuilder, NullEngine, Scene, TransformNode, Vector3 } from '@babylonjs/core';
 
 if (typeof globalThis.FileReader === 'undefined') {
   class NodeFileReader {
@@ -23,10 +23,13 @@ if (typeof globalThis.FileReader === 'undefined') {
   (globalThis as unknown as { FileReader: typeof NodeFileReader }).FileReader = NodeFileReader;
 }
 import { buildVeniceNightCourt } from '../src/lib/babylon/VeniceNightCourt';
+import { directedFraming } from '../src/lib/babylon/veniceDunkCamera';
 import {
+  fitMeshyPieceToFootprint,
   hideCheapCourtMeshes,
   hideCheapSurroundMeshes,
   loadMeshyVeniceCourt,
+  MeshyPiece,
   MESHY_COURT_GLB,
   MESHY_SURROUND_GLB,
 } from '../src/lib/babylon/MeshyVeniceCourt';
@@ -64,12 +67,16 @@ export async function runMeshyVeniceCourtTests(): Promise<
   const surroundBounds = meshy.surround?.root.getHierarchyBoundingVectors();
   const surroundWidth = surroundBounds ? surroundBounds.max.x - surroundBounds.min.x : 0;
 
-  const loadedAndFit =
+  // This fixture ships ~2.6x bigger than the regulation 15.2x28 footprint —
+  // a rich Meshy export, not a toy slab. It must NOT be shrunk down to fit;
+  // it keeps its own native size and worldScale reports how much bigger.
+  const loadedAndNotShrunk =
     meshy.courtLoaded &&
     meshy.surroundLoaded &&
-    Math.abs(courtWidth - 15.2) < 0.05 &&
-    Math.abs(courtDepth - 28) < 0.05 &&
-    Math.abs(surroundWidth - 60) < 0.2;
+    courtWidth > 15.2 + 1 &&
+    courtDepth > 28 + 1 &&
+    surroundWidth > 60 + 1 &&
+    meshy.worldScale > 1.5;
 
   hideCheapCourtMeshes(scene);
   hideCheapSurroundMeshes(scene);
@@ -104,6 +111,37 @@ export async function runMeshyVeniceCourtTests(): Promise<
   } catch {
     failSafeThrew = true;
   }
+
+  // Isolated floor check: a degenerate/tiny export (unrelated to the fixture
+  // above) must still be grown UP to regulation size, not left as a sliver.
+  const tinyRoot = new TransformNode('tiny_root', scene);
+  const tinyMesh = MeshBuilder.CreatePlane('tiny_mesh', { width: 0.5, height: 0.5 }, scene);
+  tinyMesh.rotation.x = Math.PI / 2;
+  tinyMesh.parent = tinyRoot;
+  const tinyPiece: MeshyPiece = { root: tinyRoot, meshes: [tinyMesh], dispose: () => tinyRoot.dispose() };
+  const tinyScale = fitMeshyPieceToFootprint(tinyPiece, 15.2, 28, 5.0);
+  const tinyBounds = tinyRoot.getHierarchyBoundingVectors();
+  const tinyFinalWidth = tinyBounds.max.x - tinyBounds.min.x;
+  const growsToFloor = Math.abs(tinyFinalWidth - 15.2) < 0.05 && Math.abs(tinyScale - 1) < 0.01;
+  tinyPiece.dispose();
+
+  // Camera: idle/runway/gather/plant/takeoff/default pull back proportionally
+  // to worldScale; HANG and CONTACT stay exactly as locked regardless of it.
+  const rim = new Vector3(0, 3.05, 5.5);
+  const athletePos = new Vector3(0, 0, -2);
+  const idleNoScale = directedFraming('IDLE', athletePos, rim, undefined, undefined, 1);
+  const idleBigScale = directedFraming('IDLE', athletePos, rim, undefined, undefined, 2.6);
+  const idlePullsBack =
+    Vector3.Distance(idleBigScale.pos, athletePos) > Vector3.Distance(idleNoScale.pos, athletePos) + 1;
+  const hangNoScale = directedFraming('HANG', athletePos, rim, undefined, undefined, 1);
+  const hangBigScale = directedFraming('HANG', athletePos, rim, undefined, undefined, 2.6);
+  const contactNoScale = directedFraming('CONTACT', athletePos, rim, undefined, undefined, 1);
+  const contactBigScale = directedFraming('CONTACT', athletePos, rim, undefined, undefined, 2.6);
+  const hangContactLocked =
+    Vector3.Distance(hangNoScale.pos, hangBigScale.pos) < 1e-9 &&
+    Vector3.Distance(hangNoScale.target, hangBigScale.target) < 1e-9 &&
+    Vector3.Distance(contactNoScale.pos, contactBigScale.pos) < 1e-9 &&
+    Vector3.Distance(contactNoScale.target, contactBigScale.target) < 1e-9;
 
   const modeSrc = (() => {
     try {
@@ -141,12 +179,39 @@ export async function runMeshyVeniceCourtTests(): Promise<
     !meshySrc.includes('abortMixamoLoad') &&
     !meshySrc.includes("from './MixamoAthlete'");
 
+  const worldScaleWiring =
+    modeSrc.includes('worldScaleRef.current = meshy.worldScale') &&
+    modeSrc.includes('directedFraming(') &&
+    modeSrc.includes('worldScaleRef.current') &&
+    modeSrc.includes("courtRef.current?.rim.scaling.set(s, s, s)") &&
+    modeSrc.includes("courtRef.current?.backboard.scaling.set(s, s, s)") &&
+    !modeSrc.includes('court.rim.position.y = court.hoopRestY + snap.rimYOffset * s') &&
+    modeSrc.includes('court.rim.position.y = court.hoopRestY + snap.rimYOffset');
+
   const results = [
     {
-      name: 'Meshy court + surround load via fetch/File + glTF and fit to the live court footprint',
-      passed: loadedAndFit,
-      actual: `courtLoaded=${meshy.courtLoaded} surroundLoaded=${meshy.surroundLoaded} courtW=${courtWidth.toFixed(2)} courtD=${courtDepth.toFixed(2)} surroundW=${surroundWidth.toFixed(2)}`,
-      expected: 'both pieces attach; court fits 15.2x28, surround fits 60x60 — same map, fit to its footprint',
+      name: 'A mural bigger than regulation is not shrunk to fit — it keeps its own size',
+      passed: loadedAndNotShrunk,
+      actual: `courtLoaded=${meshy.courtLoaded} surroundLoaded=${meshy.surroundLoaded} courtW=${courtWidth.toFixed(2)} courtD=${courtDepth.toFixed(2)} surroundW=${surroundWidth.toFixed(2)} worldScale=${meshy.worldScale.toFixed(2)}`,
+      expected: 'court/surround stay near native (~2.6x regulation), worldScale > 1.5 — no forced shrink to 15.2x28/60x60',
+    },
+    {
+      name: 'A too-small export is still grown up to the regulation floor (not left a sliver)',
+      passed: growsToFloor,
+      actual: `finalWidth=${tinyFinalWidth.toFixed(2)} scale=${tinyScale.toFixed(3)}`,
+      expected: 'a 0.5-unit degenerate plane grows to 15.2 width, uniform scale === 1 return value (grown-to-floor, not "already big")',
+    },
+    {
+      name: 'Idle/runway camera pulls back proportionally to worldScale; HANG/CONTACT ignore it (locked)',
+      passed: idlePullsBack && hangContactLocked,
+      actual: `idleNoScaleDist=${Vector3.Distance(idleNoScale.pos, athletePos).toFixed(2)} idleBigScaleDist=${Vector3.Distance(idleBigScale.pos, athletePos).toFixed(2)} hangContactLocked=${hangContactLocked}`,
+      expected: 'idle offset grows with worldScale; hang/contact framing identical at scale=1 and scale=2.6',
+    },
+    {
+      name: 'Rim/backboard/post are scaled visually to match a bigger mural — rim Y stays gameplay-driven',
+      passed: worldScaleWiring,
+      actual: `wired=${worldScaleWiring}`,
+      expected: 'worldScaleRef feeds directedFraming and rim/backboard/post .scaling; rim.position.y keeps hoopRestY + rimYOffset only',
     },
     {
       name: 'hideCheap removes the beige/procedural slab and backdrop once Meshy loads',

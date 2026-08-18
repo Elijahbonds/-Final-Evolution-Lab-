@@ -34,6 +34,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const athleteRef = useRef<MixamoAthlete | null>(null);
   const courtRef = useRef<VeniceNightCourt | null>(null);
   const meshyCourtRef = useRef<MeshyVeniceCourt | null>(null);
+  const worldScaleRef = useRef(1);
   const dunkCamRef = useRef<FreeCamera | null>(null);
   const hoopPosRef = useRef(new Vector3(0, 3.05, 5.5));
   const pointerDownRef = useRef(false);
@@ -128,8 +129,18 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
             meshy.dispose();
           } else {
             meshyCourtRef.current = meshy;
+            worldScaleRef.current = meshy.worldScale;
             if (meshy.courtLoaded) hideCheapCourtMeshes(scene);
             if (meshy.surroundLoaded) hideCheapSurroundMeshes(scene);
+            // The mural reads bigger than regulation — grow the hoop
+            // dressing to match so it does not look tiny next to it.
+            // Position stays gameplay-driven; only visual size changes.
+            if (meshy.worldScale > 1) {
+              const s = meshy.worldScale;
+              courtRef.current?.rim.scaling.set(s, s, s);
+              courtRef.current?.backboard.scaling.set(s, s, s);
+              scene.getMeshByName('venice_post')?.scaling.set(s, s, s);
+            }
           }
         } catch {
           /* Meshy mural is best-effort; cheap procedural court stays up */
@@ -272,7 +283,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         athlete.root.position,
         hoopPosRef.current,
         framePos,
-        frameTarget
+        frameTarget,
+        worldScaleRef.current
       );
       const follow = snap.phase === 'IDLE' ? 0.08 : 0.14;
       Vector3.LerpToRef(camPosRef.current, framing.pos, follow, camPosRef.current);
@@ -325,6 +337,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       athleteRef.current = null;
       meshyCourtRef.current?.dispose();
       meshyCourtRef.current = null;
+      worldScaleRef.current = 1;
       courtRef.current = null;
       dunkCamRef.current = null;
       ctx.dispose();

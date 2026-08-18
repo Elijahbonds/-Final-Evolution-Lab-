@@ -32,6 +32,8 @@ export interface MeshyVeniceCourt {
   surround: MeshyPiece | null;
   courtLoaded: boolean;
   surroundLoaded: boolean;
+  /** How much bigger than the default regulation footprint the mural came in at. 1 when no mural loaded — never < 1: the mural is never shrunk. */
+  worldScale: number;
   dispose: () => void;
 }
 
@@ -139,22 +141,30 @@ async function attachMeshyPiece(
 }
 
 /**
- * Scale + recenter a loaded mural to the SAME gameplay footprint the
- * procedural court already uses — derived from the live map's own
- * dimensions, not an invented number. Floor sits at y = 0.
+ * Recenter a loaded mural on the live court's center/floor and scale it up
+ * to AT LEAST the regulation footprint — never down. Vision: shrinking a
+ * rich Meshy mural down to the old procedural court's small footprint is
+ * what produced the "toy slab, tiny hoop/palms, empty void" complaint.
+ * A mural that already ships bigger than regulation stays at its own
+ * native size (uniform === 1, no scale applied); a too-small export is
+ * grown up to the floor so it is never a degenerate sliver. Returns the
+ * uniform scale actually applied, so the caller can size camera/hoop
+ * dressing to match instead of forcing the mural smaller.
  */
 export function fitMeshyPieceToFootprint(
   piece: MeshyPiece,
   targetWidth: number,
   targetDepth: number,
   centerZ: number
-): void {
+): number {
   const bounds = piece.root.getHierarchyBoundingVectors();
   const width = Math.max(1e-4, bounds.max.x - bounds.min.x);
   const depth = Math.max(1e-4, bounds.max.z - bounds.min.z);
-  const scaleX = targetWidth / width;
-  const scaleZ = targetDepth / depth;
-  const uniform = Math.min(scaleX, scaleZ);
+  const growX = targetWidth / width;
+  const growZ = targetDepth / depth;
+  // Floor, not a forced fit: grow a too-small export up to regulation size,
+  // but never shrink a mural that already reads bigger than the floor.
+  const uniform = Math.max(1, Math.min(growX, growZ));
   piece.root.scaling.set(uniform, uniform, uniform);
 
   const scaledBounds = piece.root.getHierarchyBoundingVectors();
@@ -164,6 +174,12 @@ export function fitMeshyPieceToFootprint(
   piece.root.position.x -= centerX;
   piece.root.position.z += centerZ - centerZActual;
   piece.root.position.y -= floorY;
+
+  const finalWidth = width * uniform;
+  const finalDepth = depth * uniform;
+  // How much bigger than regulation the mural reads once fit — 1 when it
+  // was grown exactly to the floor, > 1 when it kept its own bigger size.
+  return Math.max(finalWidth / targetWidth, finalDepth / targetDepth);
 }
 
 export async function loadMeshyVeniceCourt(
@@ -187,25 +203,32 @@ export async function loadMeshyVeniceCourt(
   const court = courtResult.status === 'fulfilled' ? courtResult.value : null;
   const surround = surroundResult.status === 'fulfilled' ? surroundResult.value : null;
 
+  let courtScale = 1;
+  let surroundScale = 1;
   if (court && !scene.isDisposed) {
-    fitMeshyPieceToFootprint(court, opts.courtWidth, opts.courtDepth, opts.courtCenterZ);
+    courtScale = fitMeshyPieceToFootprint(court, opts.courtWidth, opts.courtDepth, opts.courtCenterZ);
   } else if (court) {
     court.dispose();
   }
   if (surround && !scene.isDisposed) {
-    fitMeshyPieceToFootprint(surround, opts.surroundWidth, opts.surroundDepth, opts.courtCenterZ);
+    surroundScale = fitMeshyPieceToFootprint(surround, opts.surroundWidth, opts.surroundDepth, opts.courtCenterZ);
   } else if (surround) {
     surround.dispose();
   }
 
   const courtLoaded = !!court && !scene.isDisposed;
   const surroundLoaded = !!surround && !scene.isDisposed;
+  // The court floor is the regulation reference; the surround (palms, pier,
+  // sky) rides along at whichever scale reads bigger so it never looks like
+  // an empty void around a correctly-sized floor.
+  const worldScale = Math.max(courtLoaded ? courtScale : 1, surroundLoaded ? surroundScale : 1);
 
   return {
     court: courtLoaded ? court : null,
     surround: surroundLoaded ? surround : null,
     courtLoaded,
     surroundLoaded,
+    worldScale,
     dispose: () => {
       court?.dispose();
       surround?.dispose();

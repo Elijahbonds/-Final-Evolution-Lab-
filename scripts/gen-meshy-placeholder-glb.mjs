@@ -102,9 +102,11 @@ function buildQuadGlb({ halfX, halfZ, color, name }) {
 }
 
 // Aspect ratios mirror the real gameplay footprint (court 15.2x28, surround
-// square) at a different native scale, so the fit code actually scales.
-const court = buildQuadGlb({ halfX: 1, halfZ: 28 / 15.2, color: [0.05, 0.3, 0.62, 1.0], name: 'MeshyVeniceCourt' });
-const surround = buildQuadGlb({ halfX: 1.6, halfZ: 1.6, color: [0.42, 0.38, 0.3, 1.0], name: 'MeshyVeniceSurround' });
+// square) but at ~2.6x the regulation size — a real Meshy export ships as a
+// rich, big environment, not a toy slab. fitMeshyPieceToFootprint must keep
+// this native size (grow-only floor, never a forced shrink).
+const court = buildQuadGlb({ halfX: 20, halfZ: 20 * (28 / 15.2), color: [0.05, 0.3, 0.62, 1.0], name: 'MeshyVeniceCourt' });
+const surround = buildQuadGlb({ halfX: 60, halfZ: 60, color: [0.42, 0.38, 0.3, 1.0], name: 'MeshyVeniceSurround' });
 
 writeFileSync(join(outDir, 'venice-blue-court.glb'), court);
 writeFileSync(join(outDir, 'venice-court-surround.glb'), surround);
