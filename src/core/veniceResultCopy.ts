@@ -11,3 +11,9 @@ export const VENICE_RESULT_COPY = {
   eastbayRole: 'CASE comparison',
   eastbayClass: 'NOT CLINICAL',
 } as const;
+
+/** Gather-late line only when gather was late. No invented AIR / mushy / rim-out copy. */
+export function caseMissSub(reason: 'EARLY' | 'LATE' | 'AIR' | 'SHORT' | 'RIM_OUT' | 'MUSHY_PLANT' | null): string {
+  if (reason === 'LATE') return VENICE_RESULT_COPY.missSub;
+  return '';
+}

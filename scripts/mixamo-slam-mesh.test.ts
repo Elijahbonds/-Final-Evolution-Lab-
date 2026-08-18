@@ -92,7 +92,8 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
     !src.includes('SLAM_SPINS') &&
     src.includes('slamClips') &&
     src.includes('applyBakedSlamFrame') &&
-    !src.includes('applyLocalSlam');
+    !src.includes('applyLocalSlam') &&
+    !src.includes('applyPoseMap');
 
   const results = [
     {

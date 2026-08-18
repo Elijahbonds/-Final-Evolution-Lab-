@@ -12,7 +12,7 @@ import {
   ContactOutcome,
   DunkPhase,
 } from '../../core/VeniceDunkLoop';
-import { VENICE_RESULT_COPY } from '../../core/veniceResultCopy';
+import { VENICE_RESULT_COPY, caseMissSub } from '../../core/veniceResultCopy';
 import { SoundJuice } from '../../lib/judgeScoring';
 
 interface BabylonDunkModeProps {
@@ -364,7 +364,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
                 {result?.isMake ? copy.makeHeadline : copy.missHeadline}
               </div>
               <div className="text-[10px] font-mono text-zinc-300 mt-0.5">
-                {result?.isMake ? copy.makeSub : copy.missSub}
+                {result?.isMake ? copy.makeSub : caseMissSub(result?.missReason ?? null)}
               </div>
             </div>
             <div className="text-[9px] font-mono text-zinc-400 mt-2">

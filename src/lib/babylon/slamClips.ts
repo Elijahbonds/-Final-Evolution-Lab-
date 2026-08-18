@@ -22,6 +22,19 @@ export const HANG_STYLES: HangStyle[] = ['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHA
 
 export const SLAM_TRACKS = tracks as Record<HangStyle, SlamTrack>;
 
+export const APPROACH_TRACKS = tracks as Record<'PLANT' | 'TAKEOFF', SlamTrack>;
+
+export function slamTrackSweeps(style: HangStyle): boolean {
+  const keys = SLAM_TRACKS[style]?.bones.LeftArm ?? [];
+  if (keys.length < 3) return false;
+  const a = keys[0].q;
+  const b = keys[1].q;
+  const c = keys[keys.length - 1].q;
+  const d = (p: number[], q: number[]) =>
+    Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) + Math.abs(p[3] - q[3]);
+  return d(a, b) > 0.04 && d(b, c) > 0.02;
+}
+
 export function slamTrackFrame(track: SlamTrack, t01: number): number {
   return Math.max(0, Math.min(1, t01)) * track.duration * track.fps;
 }

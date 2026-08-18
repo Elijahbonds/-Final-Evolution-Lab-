@@ -77,9 +77,68 @@ async function main() {
     tracks[style] = { fps: FPS, duration: DURATION, bones };
   }
 
+  const approach: Record<string, Array<{ t: number; map: Record<string, { x: number; y: number; z: number }> }>> = {
+    PLANT: [
+      { t: 0, map: {} },
+      {
+        t: 1,
+        map: {
+          Spine: { x: 0.32, y: 0, z: 0 },
+          Spine1: { x: 0.2, y: 0, z: 0 },
+          LeftUpLeg: { x: 0.95, y: 0.08, z: 0 },
+          RightUpLeg: { x: 1.05, y: -0.06, z: 0 },
+          LeftLeg: { x: 1.15, y: 0, z: 0 },
+          RightLeg: { x: 1.22, y: 0, z: 0 },
+          LeftArm: { x: 0, y: 0, z: -0.45 },
+          RightArm: { x: 0, y: 0, z: -0.45 },
+        },
+      },
+    ],
+    TAKEOFF: [
+      { t: 0, map: {} },
+      {
+        t: 1,
+        map: {
+          Spine: { x: -0.12, y: 0, z: 0 },
+          LeftUpLeg: { x: -0.12, y: 0, z: 0 },
+          RightUpLeg: { x: 0.72, y: 0, z: 0 },
+          LeftLeg: { x: 0.22, y: 0, z: 0 },
+          RightLeg: { x: 0.85, y: 0, z: 0 },
+          LeftShoulder: { x: 0, y: 0, z: -0.35 },
+          RightShoulder: { x: 0, y: 0, z: -0.35 },
+          LeftArm: { x: 0, y: 0, z: -0.85 },
+          RightArm: { x: 0, y: 0, z: -0.85 },
+          LeftForeArm: { x: -0.22, y: 0, z: 0 },
+          RightForeArm: { x: -0.22, y: 0, z: 0 },
+        },
+      },
+    ],
+  };
+
+  for (const [name, keys] of Object.entries(approach)) {
+    const endFrame = Math.round(0.2 * FPS);
+    const boneNames = new Set<string>();
+    for (const kf of keys) {
+      for (const bone of Object.keys(kf.map)) boneNames.add(bone);
+    }
+    const bones: Record<string, Array<{ frame: number; q: number[] }>> = {};
+    for (const boneName of boneNames) {
+      const bind = rest.get(boneName);
+      if (!bind) continue;
+      bones[boneName] = keys.map((kf) => {
+        const spin = kf.map[boneName];
+        const q = spin
+          ? bind.multiply(Quaternion.FromEulerAngles(spin.x, spin.y, spin.z))
+          : bind.clone();
+        return { frame: Math.round(kf.t * endFrame), q: [q.x, q.y, q.z, q.w] };
+      });
+    }
+    tracks[name] = { fps: FPS, duration: 0.2, bones };
+  }
+
   const out = new URL('../src/lib/babylon/slamClipTracks.json', import.meta.url);
   writeFileSync(out, `${JSON.stringify(tracks, null, 2)}\n`);
-  console.log(`baked ${Object.keys(tracks).length} slam clips → ${out.pathname}`);
+  console.log(`baked ${Object.keys(tracks).length} body clips → ${out.pathname}`);
   scene.dispose();
   engine.dispose();
 }

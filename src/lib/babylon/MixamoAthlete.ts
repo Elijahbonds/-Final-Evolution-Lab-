@@ -25,7 +25,15 @@ import {
   ShadowGenerator,
 } from '@babylonjs/core';
 import { sanitizeBoneName } from '../rigSanitizer';
-import { HangStyle, HANG_STYLES, SLAM_TRACKS, slamTrackFrame, sampleTrackQuat } from './slamClips';
+import {
+  HangStyle,
+  HANG_STYLES,
+  SLAM_TRACKS,
+  APPROACH_TRACKS,
+  slamTrackFrame,
+  sampleTrackQuat,
+  type SlamTrack,
+} from './slamClips';
 
 export interface MixamoAthlete {
   root: TransformNode;
@@ -205,14 +213,20 @@ export async function createMixamoAthlete(
     }
   };
 
-  const slamQuat = (bind: Quaternion, spin?: { x: number; y: number; z: number }): Quaternion => {
-    if (!spin) return bind.clone();
-    return bind.multiply(Quaternion.FromEulerAngles(spin.x, spin.y, spin.z));
-  };
-
   const flushPose = () => {
     skeleton?.computeAbsoluteTransforms();
     root.computeWorldMatrix(true);
+  };
+
+  const writeTrack = (track: SlamTrack, t01: number) => {
+    const frame = slamTrackFrame(track, t01);
+    for (const [boneName, keys] of Object.entries(track.bones)) {
+      const bone = bones.get(boneName);
+      const sampled = sampleTrackQuat(keys, frame);
+      if (!bone || !sampled) continue;
+      writeLocal(bone, new Quaternion(sampled[0], sampled[1], sampled[2], sampled[3]));
+    }
+    flushPose();
   };
 
   const applyEuler = (boneName: string, x: number, y: number, z: number) => {
@@ -231,22 +245,6 @@ export async function createMixamoAthlete(
     basketball.position.set(0.04, 0.08, 0.02);
   };
 
-  const applyPoseMap = (map: Record<string, { x: number; y: number; z: number }>, intensity: number) => {
-    stopLocoClips();
-    stopSlamClips();
-    const i = Math.max(0, Math.min(1, intensity));
-    for (const [name, bind] of rest) {
-      const bone = bones.get(name);
-      if (!bone) continue;
-      const spin = map[name];
-      writeLocal(
-        bone,
-        spin ? slamQuat(bind, { x: spin.x * i, y: spin.y * i, z: spin.z * i }) : bind.clone()
-      );
-    }
-    flushPose();
-  };
-
   const boneWorld = (name: string): Vector3 => {
     const bone = bones.get(name);
     if (!bone) return new Vector3(Number.NaN, Number.NaN, Number.NaN);
@@ -260,38 +258,15 @@ export async function createMixamoAthlete(
   };
 
   const posePlant = (intensity: number) => {
-    applyPoseMap(
-      {
-        Spine: { x: 0.32, y: 0, z: 0 },
-        Spine1: { x: 0.2, y: 0, z: 0 },
-        LeftUpLeg: { x: 0.95, y: 0.08, z: 0 },
-        RightUpLeg: { x: 1.05, y: -0.06, z: 0 },
-        LeftLeg: { x: 1.15, y: 0, z: 0 },
-        RightLeg: { x: 1.22, y: 0, z: 0 },
-        LeftArm: { x: 0, y: 0, z: -0.45 },
-        RightArm: { x: 0, y: 0, z: -0.45 },
-      },
-      intensity
-    );
+    stopLocoClips();
+    stopSlamClips();
+    writeTrack(APPROACH_TRACKS.PLANT, intensity);
   };
 
   const poseTakeoff = (intensity: number) => {
-    applyPoseMap(
-      {
-        Spine: { x: -0.12, y: 0, z: 0 },
-        LeftUpLeg: { x: -0.12, y: 0, z: 0 },
-        RightUpLeg: { x: 0.72, y: 0, z: 0 },
-        LeftLeg: { x: 0.22, y: 0, z: 0 },
-        RightLeg: { x: 0.85, y: 0, z: 0 },
-        LeftShoulder: { x: 0, y: 0, z: -0.35 },
-        RightShoulder: { x: 0, y: 0, z: -0.35 },
-        LeftArm: { x: 0, y: 0, z: -0.85 },
-        RightArm: { x: 0, y: 0, z: -0.85 },
-        LeftForeArm: { x: -0.22, y: 0, z: 0 },
-        RightForeArm: { x: -0.22, y: 0, z: 0 },
-      },
-      intensity
-    );
+    stopLocoClips();
+    stopSlamClips();
+    writeTrack(APPROACH_TRACKS.TAKEOFF, intensity);
   };
 
   const buildSlamClip = (style: HangStyle): AnimationGroup => {
@@ -338,21 +313,13 @@ export async function createMixamoAthlete(
   });
 
   const applyBakedSlamFrame = (style: HangStyle, t01: number) => {
-    const track = SLAM_TRACKS[style];
-    const frame = slamTrackFrame(track, t01);
-    for (const [boneName, keys] of Object.entries(track.bones)) {
-      const bone = bones.get(boneName);
-      const sampled = sampleTrackQuat(keys, frame);
-      if (!bone || !sampled) continue;
-      writeLocal(bone, Quaternion.FromArray(sampled));
-    }
+    writeTrack(SLAM_TRACKS[style], t01);
     const group = anims.slam[style];
     if (group) {
-      group.start(false, 1, 0, group.to);
+      const frame = slamTrackFrame(SLAM_TRACKS[style], t01);
+      if (!group.isPlaying) group.start(false, 1, 0, group.to);
       group.goToFrame(frame);
-      group.pause();
     }
-    flushPose();
   };
 
   let playingSlam: HangStyle | null = null;

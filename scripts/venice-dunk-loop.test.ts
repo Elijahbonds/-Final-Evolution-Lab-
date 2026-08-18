@@ -18,8 +18,8 @@ import {
   styleFromAirSteer,
   VeniceDunkAttempt,
 } from '../src/core/VeniceDunkLoop';
-import { slamArmSignature, slamClipSweeps } from '../src/lib/babylon/slamSilhouettes';
-import { VENICE_RESULT_COPY } from '../src/core/veniceResultCopy';
+import { HANG_STYLES, SLAM_TRACKS, slamTrackSweeps } from '../src/lib/babylon/slamClips';
+import { VENICE_RESULT_COPY, caseMissSub } from '../src/core/veniceResultCopy';
 
 export interface TestResult {
   name: string;
@@ -381,25 +381,18 @@ export function runVeniceDunkLoopTests(): TestResult[] {
   }
 
   {
-    const reverse = slamArmSignature('REVERSE_TWO_HAND');
-    const mill = slamArmSignature('WINDMILL');
-    const hawk = slamArmSignature('TOMAHAWK');
-    const spin = slamArmSignature('360_SPIN');
-    const clipsSweep =
-      slamClipSweeps('REVERSE_TWO_HAND') &&
-      slamClipSweeps('WINDMILL') &&
-      slamClipSweeps('TOMAHAWK') &&
-      slamClipSweeps('360_SPIN');
-    const passed =
-      new Set([reverse, mill, hawk, spin]).size === 4 &&
-      !reverse.includes('3.14') &&
-      !mill.includes('3.14') &&
-      clipsSweep;
+    const sigs = HANG_STYLES.map((style) => {
+      const arm = SLAM_TRACKS[style].bones.LeftArm ?? [];
+      const last = arm[arm.length - 1]?.q ?? [];
+      return last.map((n) => n.toFixed(3)).join(',');
+    });
+    const clipsSweep = HANG_STYLES.every((style) => slamTrackSweeps(style));
+    const passed = new Set(sigs).size === 4 && clipsSweep;
     results.push({
-      name: 'Slam silhouettes differ by style and are authored clips, not a 180 spine twist',
+      name: 'Slam clips differ by style and sweep the left arm (not Euler-after-resetPose)',
       passed,
-      actual: `${reverse} // ${mill} // ${hawk} // ${spin} sweep=${clipsSweep}`,
-      expected: 'four distinct arm clips with a sweep, no PI yaw',
+      actual: `${sigs.join(' // ')} sweep=${clipsSweep}`,
+      expected: 'four distinct baked LeftArm end quats, each clip sweeps',
     });
   }
 
@@ -544,12 +537,18 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       c.eastbayLine === '164 ms / 4.8x / 38.5 in / 3°' &&
       c.eastbayClass === 'NOT CLINICAL' &&
       !c.makeHeadline.includes('SLAMMED') &&
-      !c.missHeadline.includes('Who Scene');
+      !c.missHeadline.includes('Who Scene') &&
+      caseMissSub('LATE') === c.missSub &&
+      caseMissSub('AIR') === '' &&
+      caseMissSub('RIM_OUT') === '' &&
+      caseMissSub('MUSHY_PLANT') === '' &&
+      caseMissSub('EARLY') === '' &&
+      caseMissSub('SHORT') === '';
     results.push({
       name: 'CASE card copy is locked (Bonds Bounce / plant miss, no SLAMMED)',
       passed,
-      actual: `${c.makeHeadline} | ${c.missHeadline} | ${c.nextAttempt} | ${c.instantRetry}`,
-      expected: "That's the Bonds Bounce. / Missed the plant, not the rim. / NEXT ATTEMPT. Same plant. / INSTANT RETRY. Same plant.",
+      actual: `${c.makeHeadline} | ${c.missHeadline} | lateSub=${caseMissSub('LATE')} airSub="${caseMissSub('AIR')}" rimSub="${caseMissSub('RIM_OUT')}"`,
+      expected: "That's the Bonds Bounce. / Missed the plant, not the rim. Gather-late sub only on LATE.",
     });
   }
 
