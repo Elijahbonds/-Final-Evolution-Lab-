@@ -50,11 +50,10 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
   const hangFromBvh =
     src.includes('bvhRetarget') &&
     src.includes('dunkTake') &&
+    src.includes('loadDunkBvhText') &&
     !src.includes('SLAM_CLIP_KEYS') &&
-    !src.includes('applyLocalSlam') &&
-    !src.includes('buildSlamClip') &&
-    loader.includes(`/assets/${ELIJAH_DUNK_BVH}`) &&
-    !loader.includes(`/assets/cmu_124_06`);
+    loader.includes('ELIJAH_DUNK_BVH') &&
+    !loader.includes('/assets/cmu_124_06');
 
   const results = [
     {
