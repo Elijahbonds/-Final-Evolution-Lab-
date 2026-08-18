@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ArrowLeft, Volume2, VolumeX } from 'lucide-react';
-import { Vector3, FreeCamera, Color3 } from '@babylonjs/core';
+import { Vector3, FreeCamera, Color3, TransformNode } from '@babylonjs/core';
 import { createBabylonContext } from '../../lib/babylon/BabylonSceneBuilder';
 import { createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
 import { buildVeniceNightCourt, VeniceNightCourt } from '../../lib/babylon/VeniceNightCourt';
@@ -64,11 +64,16 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     dunkCam.maxZ = 220;
     dunkCam.fov = 0.88;
     dunkCam.inputs.clear();
+    const lookAt = new TransformNode('veniceDunkLook', scene);
+    lookAt.position.copyFrom(camTargetRef.current);
+    dunkCam.lockedTarget = lookAt;
     scene.activeCamera = dunkCam;
     dunkCamRef.current = dunkCam;
 
     let disposed = false;
     const hoop = hoopPosRef.current;
+    const framePos = new Vector3();
+    const frameTarget = new Vector3();
 
     const boot = async () => {
       try {
@@ -76,18 +81,29 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           (async () => {
             const court = await buildVeniceNightCourt(scene, shadowGenerator, hoop, {
               spectators: false,
+              previewSafe: true,
             });
-            if (disposed) return;
+            if (disposed || scene.isDisposed) {
+              return;
+            }
             courtRef.current = court;
 
             const athlete = await createMixamoAthlete(scene, 'veniceDunker', shadowGenerator, {
               tint: new Color3(0.05, 0.55, 0.7),
             });
-            if (disposed) return;
+            if (disposed || scene.isDisposed) {
+              athlete.dispose();
+              return;
+            }
             athlete.root.position.set(0, 0, -6.2);
             athlete.root.rotation.y = 0;
             athleteRef.current = athlete;
             athlete.playIdle();
+            try {
+              scene.cleanCachedTextureBuffer();
+            } catch {
+              /* older engines may not expose the cache wipe */
+            }
             setReady(true);
           })(),
           LOCAL_ASSET_TIMEOUT_MS + 4000,
@@ -96,11 +112,18 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       } catch (err) {
         if (disposed) return;
         setLoadError(err instanceof Error ? err.message : 'Mixamo dunker failed to load');
+        try {
+          engine.stopRenderLoop();
+        } catch {
+          /* keep the iframe up if the engine is already gone */
+        }
       }
     };
     void boot();
 
     const observer = scene.onBeforeRenderObservable.add(() => {
+      if (disposed || scene.isDisposed || engine.isDisposed) return;
+      try {
       const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
       const attempt = attemptRef.current;
       const athlete = athleteRef.current;
@@ -173,21 +196,49 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       const framing = directedFraming(
         snap.phase,
         athlete.root.position,
-        hoopPosRef.current
+        hoopPosRef.current,
+        framePos,
+        frameTarget
       );
       const follow = snap.phase === 'IDLE' ? 0.08 : 0.14;
-      camPosRef.current = Vector3.Lerp(camPosRef.current, framing.pos, follow);
-      camTargetRef.current = Vector3.Lerp(camTargetRef.current, framing.target, follow);
+      Vector3.LerpToRef(camPosRef.current, framing.pos, follow, camPosRef.current);
+      Vector3.LerpToRef(camTargetRef.current, framing.target, follow, camTargetRef.current);
       cam.position.copyFrom(camPosRef.current);
-      cam.setTarget(camTargetRef.current);
+      lookAt.position.copyFrom(camTargetRef.current);
+      } catch {
+        /* keep the iframe alive if a pose or cam frame throws */
+      }
     });
 
+    let drawFails = 0;
+    let lastDraw = 0;
+    engine.onContextLostObservable.add(() => {
+      disposed = true;
+      try {
+        engine.stopRenderLoop();
+      } catch {
+        /* already gone */
+      }
+      setLoadError('Preview renderer lost the GPU context');
+    });
     engine.runRenderLoop(() => {
       try {
-        if (disposed || engine.isDisposed) return;
+        if (disposed || engine.isDisposed || scene.isDisposed) return;
+        const now = performance.now();
+        if (now - lastDraw < 1000 / 24) return;
+        lastDraw = now;
         scene.render();
+        drawFails = 0;
       } catch {
-        /* keep the iframe alive if a frame throws */
+        drawFails += 1;
+        if (drawFails >= 3) {
+          try {
+            engine.stopRenderLoop();
+          } catch {
+            /* already gone */
+          }
+          setLoadError('Preview renderer stopped');
+        }
       }
     });
 

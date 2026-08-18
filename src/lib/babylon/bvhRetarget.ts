@@ -284,51 +284,44 @@ export function buildMixamoGroupFromBvh(
   const parsed = parseBvh(bvhText);
   const fps = Math.max(1, Math.round(1 / Math.max(1e-4, parsed.meta.frameTime)));
   const group = new AnimationGroup(parsed.meta.clipName || groupName, scene);
-  const endFrame = Math.max(0, parsed.frames.length - 1);
+  const last = Math.max(0, parsed.frames.length - 1);
+  // Live pose only samples plant → hang. Do not keep 2029-frame tracks in the iframe.
+  const keyStart = Math.max(0, Math.min(parsed.meta.plantStart, parsed.meta.hangStart));
+  const keyEnd = Math.min(last, Math.max(keyStart, parsed.meta.hangEnd));
 
   for (const joint of parsed.joints) {
     const mixamo = mapBvhJointToMixamo(joint.name);
     const bone = bones.get(mixamo);
     const bind = rest.get(mixamo);
     if (!bone || !bind) continue;
-    const rotIdx = joint.channels
-      .map((ch, i) => ({ ch, i }))
-      .filter((c) => c.ch.endsWith('rotation'));
-    if (!rotIdx.length) continue;
+    if (!joint.channels.some((ch) => ch.endsWith('rotation'))) continue;
 
-    const keys = parsed.frames.map((frame, fi) => {
-      const vals = joint.channels.map((_, ci) => frame[joint.channelOffset + ci] ?? 0);
+    const keys: Array<{ frame: number; value: Quaternion }> = [];
+    const vals = new Array<number>(joint.channels.length);
+    for (let fi = keyStart; fi <= keyEnd; fi++) {
+      const frame = parsed.frames[fi];
+      for (let ci = 0; ci < joint.channels.length; ci++) {
+        vals[ci] = frame[joint.channelOffset + ci] ?? 0;
+      }
       const e = eulerFromChannels(joint.channels, vals);
       const delta = rotationFromSxyz(e.x, e.y, e.z);
-      const value = parsed.meta.restRelative ? bind.multiply(delta) : delta;
-      return { frame: fi, value };
-    });
-
-    const makeAnim = (animName: string) => {
-      const anim = new Animation(
-        animName,
-        'rotationQuaternion',
-        fps,
-        Animation.ANIMATIONTYPE_QUATERNION,
-        Animation.ANIMATIONLOOPMODE_CONSTANT
-      );
-      anim.setKeys(keys.map((k) => ({ frame: k.frame, value: k.value.clone() })));
-      return anim;
-    };
-
-    group.addTargetedAnimation(makeAnim(`${groupName}_${mixamo}`), bone);
-    const node = bone.getTransformNode();
-    if (node) {
-      if (!node.rotationQuaternion) node.rotationQuaternion = bind.clone();
-      group.addTargetedAnimation(makeAnim(`${groupName}_${mixamo}_node`), node);
+      keys.push({ frame: fi, value: parsed.meta.restRelative ? bind.multiply(delta) : delta });
     }
+
+    const anim = new Animation(
+      `${groupName}_${mixamo}`,
+      'rotationQuaternion',
+      fps,
+      Animation.ANIMATIONTYPE_QUATERNION,
+      Animation.ANIMATIONLOOPMODE_CONSTANT
+    );
+    anim.setKeys(keys);
+    group.addTargetedAnimation(anim, bone);
+    const node = bone.getTransformNode();
+    if (node && !node.rotationQuaternion) node.rotationQuaternion = bind.clone();
   }
 
-  group.normalize(0, endFrame);
-  group.onAnimationGroupEndObservable.add(() => {
-    group.goToFrame(endFrame);
-    group.pause();
-  });
+  group.normalize(keyStart, keyEnd);
   return { group, meta: parsed.meta };
 }
 
@@ -361,18 +354,32 @@ export function hangContactT01(meta: BvhTakeMeta): number {
   return (contact - start) / span;
 }
 
+const _frameQuat = new Quaternion();
+
 export function quatAtFrame(anim: Animation, frame: number): Quaternion | null {
+  if (!quatAtFrameToRef(anim, frame, _frameQuat)) return null;
+  return _frameQuat.clone();
+}
+
+function quatAtFrameToRef(anim: Animation, frame: number, out: Quaternion): Quaternion | null {
   const keys = anim.getKeys();
   if (!keys.length) return null;
-  if (frame <= keys[0].frame) return (keys[0].value as Quaternion).clone();
+  if (frame <= keys[0].frame) {
+    out.copyFrom(keys[0].value as Quaternion);
+    return out;
+  }
   const last = keys[keys.length - 1];
-  if (frame >= last.frame) return (last.value as Quaternion).clone();
+  if (frame >= last.frame) {
+    out.copyFrom(last.value as Quaternion);
+    return out;
+  }
   let i = 1;
   while (keys[i].frame < frame) i += 1;
   const a = keys[i - 1];
   const b = keys[i];
   const u = (frame - a.frame) / Math.max(1e-6, b.frame - a.frame);
-  return Quaternion.Slerp(a.value as Quaternion, b.value as Quaternion, u);
+  Quaternion.SlerpToRef(a.value as Quaternion, b.value as Quaternion, u, out);
+  return out;
 }
 
 export function applyGroupFrame(
@@ -381,13 +388,13 @@ export function applyGroupFrame(
   bones: Map<string, Bone> | null
 ) {
   for (const { animation, target } of group.targetedAnimations) {
-    const q = quatAtFrame(animation, frame);
+    const q = quatAtFrameToRef(animation, frame, _frameQuat);
     if (!q) continue;
     if (target instanceof Bone) {
       writeLocal(target, q);
     } else if (target && 'rotationQuaternion' in target) {
       const node = target as TransformNode;
-      if (!node.rotationQuaternion) node.rotationQuaternion = q;
+      if (!node.rotationQuaternion) node.rotationQuaternion = q.clone();
       else node.rotationQuaternion.copyFrom(q);
     }
   }

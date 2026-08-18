@@ -122,11 +122,23 @@ export async function createMixamoAthlete(
   }
   const container = await loadMixamoContainer(scene, options?.file ?? options?.rootUrl ?? '/assets/');
   if (scene.isDisposed) {
+    try {
+      containers.delete(scene);
+      container.dispose();
+    } catch {
+      /* source container may already be gone */
+    }
     throw new Error('Mixamo dunker scene disposed');
   }
   const instance = container.instantiateModelsToScene((n) => `${name}_${n}`, false, {
     doNotInstantiate: true,
   });
+  containers.delete(scene);
+  try {
+    container.dispose();
+  } catch {
+    /* keep the instantiated skin if the source container is already empty */
+  }
 
   const root = instance.rootNodes[0] as TransformNode;
   if (!root) {
@@ -175,7 +187,10 @@ export async function createMixamoAthlete(
     group.stop();
     group.reset();
   }
-  anims.tpose?.stop();
+  anims.walk?.dispose();
+  anims.tpose?.dispose();
+  anims.walk = undefined;
+  anims.tpose = undefined;
 
   const bvhText = await loadDunkBvhText({
     text: typeof options?.dunkBvh === 'string' ? options.dunkBvh : undefined,
@@ -194,7 +209,8 @@ export async function createMixamoAthlete(
 
   const tint = options?.tint;
   for (const mesh of meshes) {
-    mesh.receiveShadows = true;
+    mesh.receiveShadows = !!shadowGen;
+    mesh.isPickable = false;
     shadowGen?.addShadowCaster(mesh);
     if (tint && mesh.material && 'emissiveColor' in mesh.material) {
       const mat = mesh.material as StandardMaterial;
@@ -209,6 +225,8 @@ export async function createMixamoAthlete(
   basketball.material = ballMat;
   basketball.parent = root;
   basketball.position.set(0.22, 0.95, 0.18);
+  basketball.isPickable = false;
+  basketball.receiveShadows = !!shadowGen;
   shadowGen?.addShadowCaster(basketball);
 
   const hand = bones.get('RightHand');

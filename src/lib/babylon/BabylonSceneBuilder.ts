@@ -129,13 +129,26 @@ export function createBabylonContext(
     adaptToDeviceRatio: false,
     powerPreference: previewSafe ? 'low-power' : 'default',
     failIfMajorPerformanceCaveat: false,
+    audioEngine: false,
   });
   if (previewSafe) {
-    engine.setHardwareScalingLevel(Math.max(1.35, engine.getHardwareScalingLevel()));
+    engine.setHardwareScalingLevel(Math.max(2, engine.getHardwareScalingLevel()));
+    const w = canvas.clientWidth || 640;
+    const h = canvas.clientHeight || 360;
+    engine.setSize(w, h, true);
   }
   const scene = new Scene(engine);
   scene.skipPointerMovePicking = true;
   scene.clearColor = new Color4(0.07, 0.11, 0.19, 1.0);
+  if (previewSafe) {
+    scene.shadowsEnabled = false;
+    scene.fogEnabled = false;
+    scene.particlesEnabled = false;
+    scene.spritesEnabled = false;
+    scene.lensFlaresEnabled = false;
+    scene.collisionsEnabled = false;
+    scene.constantlyUpdateMeshUnderPointer = false;
+  }
 
   // Camera setup
   const camera = new ArcRotateCamera(
@@ -146,7 +159,9 @@ export function createBabylonContext(
     new Vector3(0, 1.8, 0),
     scene
   );
-  camera.attachControl(canvas, true);
+  if (!previewSafe) {
+    camera.attachControl(canvas, true);
+  }
   camera.lowerRadiusLimit = 4;
   camera.upperRadiusLimit = 32;
   camera.lowerBetaLimit = 0.1;
@@ -163,17 +178,15 @@ export function createBabylonContext(
   dirLight.intensity = 1.75;
   dirLight.diffuse = new Color3(1.0, 0.95, 0.84);
 
-  // Cool rim fill from boardwalk/ocean side
-  const rimLight = new DirectionalLight('rimLight', new Vector3(1, -0.5, 0.8).normalize(), scene);
-  rimLight.position = new Vector3(-10, 7, -10);
-  rimLight.intensity = 0.85;
-  rimLight.diffuse = new Color3(0.52, 0.78, 1.0);
+  if (!previewSafe) {
+    const rimLight = new DirectionalLight('rimLight', new Vector3(1, -0.5, 0.8).normalize(), scene);
+    rimLight.position = new Vector3(-10, 7, -10);
+    rimLight.intensity = 0.85;
+    rimLight.diffuse = new Color3(0.52, 0.78, 1.0);
+  }
 
-  const shadowGen = new ShadowGenerator(previewSafe ? 512 : 2048, dirLight);
-  if (previewSafe) {
-    shadowGen.useBlurExponentialShadowMap = false;
-    shadowGen.bias = 0.001;
-  } else {
+  const shadowGen = previewSafe ? undefined : new ShadowGenerator(2048, dirLight);
+  if (shadowGen) {
     shadowGen.useBlurExponentialShadowMap = true;
     shadowGen.blurKernel = 16;
     shadowGen.bias = 0.0005;
@@ -182,13 +195,21 @@ export function createBabylonContext(
   const celPostProcess = previewSafe ? undefined : setupCelShadingPipeline(scene, camera);
 
   let resizeTimer = 0;
+  let lastW = engine.getRenderWidth();
+  let lastH = engine.getRenderHeight();
   const onResize = () => {
     if (engine.isDisposed) return;
     if (resizeTimer) window.clearTimeout(resizeTimer);
     resizeTimer = window.setTimeout(() => {
       resizeTimer = 0;
-      if (!engine.isDisposed) engine.resize();
-    }, 200);
+      if (engine.isDisposed) return;
+      const w = canvas.clientWidth || lastW;
+      const h = canvas.clientHeight || lastH;
+      if (previewSafe && Math.abs(w - lastW) < 80 && Math.abs(h - lastH) < 80) return;
+      lastW = w;
+      lastH = h;
+      engine.resize();
+    }, previewSafe ? 320 : 200);
   };
   window.addEventListener('resize', onResize);
 

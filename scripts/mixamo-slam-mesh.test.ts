@@ -49,6 +49,7 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
   const src = readFileSync(new URL('../src/lib/babylon/MixamoAthlete.ts', import.meta.url), 'utf8');
   const loader = readFileSync(new URL('../src/lib/babylon/bvhRetarget.ts', import.meta.url), 'utf8');
   const modeSrc = readFileSync(new URL('../src/components/modes/BabylonDunkMode.tsx', import.meta.url), 'utf8');
+  const builderSrc = readFileSync(new URL('../src/lib/babylon/BabylonSceneBuilder.ts', import.meta.url), 'utf8');
   const hangFromBvh =
     src.includes('bvhRetarget') &&
     src.includes('dunkTake') &&
@@ -76,9 +77,13 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
         loader.includes('isRemoteAssetUrl') &&
         modeSrc.includes('spectators: false') &&
         modeSrc.includes('previewSafe: true') &&
+        modeSrc.includes('lockedTarget') &&
         modeSrc.includes('withTimeout') &&
         src.includes('anims.run.isPlaying') &&
         !src.includes('group.start(false, 1, 0, group.to)') &&
+        loader.includes('keyStart') &&
+        !loader.includes('parsed.frames.map((frame, fi)') &&
+        builderSrc.includes('shadowsEnabled = false') &&
         isRemoteAssetUrl('https://www.mixamo.com/foo') &&
         !isRemoteAssetUrl(`/assets/${LOCAL_DUNKER_GLB}`),
       actual: `localFetch=${src.includes('fetchLocalBytes')} timeout=${src.includes('withTimeout')} sceneUrl=${src.includes("LoadAssetContainerAsync(rootUrl, 'dunker-transformed.glb'")} remoteMixamo=${isRemoteAssetUrl('https://www.mixamo.com/foo')} specsOff=${modeSrc.includes('spectators: false')}`,
