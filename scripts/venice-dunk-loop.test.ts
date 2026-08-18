@@ -18,7 +18,7 @@ import {
   styleFromAirSteer,
   VeniceDunkAttempt,
 } from '../src/core/VeniceDunkLoop';
-import { slamArmSignature } from '../src/lib/babylon/slamSilhouettes';
+import { slamArmSignature, slamClipSweeps } from '../src/lib/babylon/slamSilhouettes';
 import { VENICE_RESULT_COPY } from '../src/core/veniceResultCopy';
 
 export interface TestResult {
@@ -77,7 +77,7 @@ export function runVeniceDunkLoopTests(): TestResult[] {
 
   {
     const takeoffApex = takeoffWorldY(1, 0.04, 2.15);
-    const hang0 = hangWorldY(0, takeoffApex, 0.25);
+    const hang0 = hangWorldY(0, takeoffApex);
     const rejected = 2.15 * Math.sin((1 - 0) * Math.PI);
     const passed = Math.abs(hang0 - takeoffApex) < 1e-6 && hang0 > 1.5 && rejected < 1e-6;
     results.push({
@@ -90,14 +90,15 @@ export function runVeniceDunkLoopTests(): TestResult[] {
 
   {
     const apex = 2.1;
-    const samples = [0, 0.1, 0.25, 0.4, 0.6, 1].map((p) => hangWorldY(p, apex, 0.2));
+    const samples = [0, 0.08, 0.16, 0.24, 0.32, 0.4].map((t) => hangWorldY(t, apex));
     const neverRises = samples.every((y, i) => y <= apex + 1e-9 && (i === 0 || y <= samples[i - 1] + 1e-9));
-    const falls = samples[samples.length - 1] < apex;
+    const drop = apex - samples[samples.length - 1];
+    const hover = 0.10 + (1 - 0.81) * 0.12;
     results.push({
       name: 'Hang y never rises after takeoff apex (ballistic fall)',
-      passed: neverRises && falls && samples[0] === apex,
-      actual: samples.map((y) => y.toFixed(3)).join(', '),
-      expected: 'monotone non-increasing from 2.1, last < apex',
+      passed: neverRises && drop >= 0.6 && drop > hover + 0.4 && samples[0] === apex,
+      actual: `${samples.map((y) => y.toFixed(3)).join(', ')} drop=${drop.toFixed(3)} hoverWas=${hover.toFixed(3)}`,
+      expected: '½gt² from 2.1 over 0.4s (~0.66m), not a 10–22cm hover',
     });
   }
 
@@ -384,35 +385,44 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     const mill = slamArmSignature('WINDMILL');
     const hawk = slamArmSignature('TOMAHAWK');
     const spin = slamArmSignature('360_SPIN');
+    const clipsSweep =
+      slamClipSweeps('REVERSE_TWO_HAND') &&
+      slamClipSweeps('WINDMILL') &&
+      slamClipSweeps('TOMAHAWK') &&
+      slamClipSweeps('360_SPIN');
     const passed =
       new Set([reverse, mill, hawk, spin]).size === 4 &&
       !reverse.includes('3.14') &&
-      !mill.includes('3.14');
+      !mill.includes('3.14') &&
+      clipsSweep;
     results.push({
-      name: 'Slam silhouettes differ by style and are not a 180 spine twist',
+      name: 'Slam silhouettes differ by style and are authored clips, not a 180 spine twist',
       passed,
-      actual: `${reverse} // ${mill} // ${hawk} // ${spin}`,
-      expected: 'four distinct arm world-spins, no PI yaw',
+      actual: `${reverse} // ${mill} // ${hawk} // ${spin} sweep=${clipsSweep}`,
+      expected: 'four distinct arm clips with a sweep, no PI yaw',
     });
   }
 
   {
-    const drop = hangDropFromApex(1.06, 0.38);
+    const t = 0.38;
+    const drop = hangDropFromApex(1.06, t);
     const hover = 0.10 + (1 - 0.81) * 0.12;
-    const y0 = hangWorldY(0, 1.06, drop);
-    const y1 = hangWorldY(1, 1.06, drop);
+    const y0 = hangWorldY(0, 1.06);
+    const y1 = hangWorldY(t, 1.06);
+    const halfSec = 1.06 - hangWorldY(0.5, 1.06);
     const passed =
-      drop >= 0.45 &&
-      drop > hover + 0.25 &&
+      Math.abs(drop - 0.5 * AIR_G * t * t) < 1e-9 &&
+      drop > hover + 0.4 &&
+      halfSec > 0.9 &&
       Math.abs(y0 - 1.06) < 1e-9 &&
-      y1 < y0 - 0.4 &&
+      y1 < y0 - 0.5 &&
       AIR_G >= 6 &&
       Math.abs(takeoffRiseSeconds(1.06) - 0.3) > 0.08;
     results.push({
-      name: 'Hang fall is ballistic from apex; takeoff rise is not a 0.30s tape',
+      name: 'Hang fall is ½gt² from apex; extraHang is not a 10–22cm hover',
       passed,
-      actual: `drop=${drop.toFixed(3)} hoverWas=${hover.toFixed(3)} y0=${y0.toFixed(3)} y1=${y1.toFixed(3)} riseT=${takeoffRiseSeconds(1.06).toFixed(3)} g=${AIR_G}`,
-      expected: 'drop >= 0.45m from apex, rise time !== 0.30',
+      actual: `drop=${drop.toFixed(3)} hoverWas=${hover.toFixed(3)} halfSec=${halfSec.toFixed(3)} y0=${y0.toFixed(3)} y1=${y1.toFixed(3)} riseT=${takeoffRiseSeconds(1.06).toFixed(3)} g=${AIR_G}`,
+      expected: '0.38s drop ≈ 0.59m, 0.5s drop ≈ 1.03m, not 0.10+(1-comp)*0.12',
     });
   }
 
@@ -445,17 +455,21 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       if (attempt.outcome) break;
     }
     const drop = (y0 ?? 0) - y1;
+    const hover = 0.10 + (1 - attempt.compression01) * 0.12;
+    const extra = attempt.extraHang();
     const passed =
       y0 !== null &&
       Math.abs((y0 ?? 0) - apex) < 0.08 &&
       !rose &&
       drop >= 0.25 &&
+      extra > hover + 0.1 &&
+      Math.abs(extra - 0.5 * AIR_G * attempt.hangElapsed * attempt.hangElapsed) < 0.02 &&
       attempt.outcome?.isMake === true;
     results.push({
       name: 'Live hang falls from apex and a takeoff hold still finishes at the rim',
       passed,
-      actual: `drop=${drop.toFixed(3)} hang0=${y0?.toFixed(3)} apex=${apex.toFixed(3)} rose=${rose} make=${attempt.outcome?.isMake}`,
-      expected: 'continuous apex, ballistic fall, takeoff hold → make at the rim',
+      actual: `drop=${drop.toFixed(3)} extra=${extra.toFixed(3)} hoverWas=${hover.toFixed(3)} hang0=${y0?.toFixed(3)} apex=${apex.toFixed(3)} rose=${rose} make=${attempt.outcome?.isMake}`,
+      expected: 'continuous apex, ½gt² extraHang, takeoff hold → make at the rim',
     });
   }
 

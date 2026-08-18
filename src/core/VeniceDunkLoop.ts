@@ -63,9 +63,9 @@ export function takeoffRiseSeconds(apexY: number, plantY = PLANT_ROOT_Y, g = AIR
   return Math.sqrt((2 * Math.max(0.08, apexY - plantY)) / g);
 }
 
-export function hangDropFromApex(apexY: number, hangT: number): number {
-  const drop = 0.5 * AIR_G * Math.max(0, hangT) * Math.max(0, hangT);
-  return Math.min(drop, Math.max(0.08, apexY - 0.12));
+/** Fallen meters after `hangT` seconds at apex. Pure ½gt² — not a 10–22cm hover. */
+export function hangDropFromApex(apexY: number, hangT: number, g = AIR_G): number {
+  return Math.max(0, apexY - hangWorldY(hangT, apexY, g));
 }
 
 export const PLANT_MARK_Z = -0.7;
@@ -98,10 +98,13 @@ export function takeoffWorldY(p: number, plantY: number, apexY: number): number 
   return plantY + (apexY - plantY) * Math.sin(t * Math.PI * 0.5);
 }
 
-/** Hang y at p in [0,1]. p=0 equals takeoff apex. After apex, y only falls. */
-export function hangWorldY(p: number, takeoffApexY: number, hangDropM: number): number {
-  const t = clamp01(p);
-  return takeoffApexY - Math.max(0, hangDropM) * t * t;
+/**
+ * Hang y at t seconds after apex. t=0 equals takeoff apex.
+ * After apex, y only falls — ½gt², not a normalized 0.5s hover.
+ */
+export function hangWorldY(tSec: number, takeoffApexY: number, g = AIR_G): number {
+  const t = Math.max(0, tSec);
+  return takeoffApexY - 0.5 * g * t * t;
 }
 
 export function landWorldY(p: number, hangEndY: number, groundY: number): number {

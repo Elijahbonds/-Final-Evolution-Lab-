@@ -9,6 +9,7 @@ import {
   Scene,
   SceneLoader,
   AssetContainer,
+  Animation,
   AnimationGroup,
   Skeleton,
   Bone,
@@ -24,7 +25,7 @@ import {
   ShadowGenerator,
 } from '@babylonjs/core';
 import { sanitizeBoneName } from '../rigSanitizer';
-import { HangStyle, SLAM_SPINS, SlamMap } from './slamSilhouettes';
+import { HangStyle, SLAM_CLIP_KEYS, SlamMap, BoneSpin, sampleSlamMap } from './slamSilhouettes';
 
 export interface MixamoAthlete {
   root: TransformNode;
@@ -37,11 +38,14 @@ export interface MixamoAthlete {
     walk?: AnimationGroup;
     run?: AnimationGroup;
     tpose?: AnimationGroup;
+    slam: Record<HangStyle, AnimationGroup>;
   };
   basketball: Mesh;
   playRun: (rate?: number) => void;
   playIdle: () => void;
   stopClips: () => void;
+  playSlam: (style: HangStyle, t01?: number) => void;
+  seekSlam: (style: HangStyle, t01: number) => void;
   posePlant: (intensity: number) => void;
   poseTakeoff: (intensity: number) => void;
   poseReverseTwoHand: (intensity: number) => void;
@@ -121,7 +125,9 @@ export async function createMixamoAthlete(
     }
   }
 
-  const anims: MixamoAthlete['anims'] = {};
+  const anims: MixamoAthlete['anims'] = {
+    slam: {} as Record<HangStyle, AnimationGroup>,
+  };
   for (const group of instance.animationGroups) {
     const key = group.name.toLowerCase();
     if (key.includes('run')) anims.run = group;
@@ -158,11 +164,25 @@ export async function createMixamoAthlete(
     basketball.position.set(0.04, 0.08, 0.02);
   }
 
-  const stopClips = () => {
+  let playingSlam: HangStyle | null = null;
+
+  const stopLocoClips = () => {
     anims.run?.stop();
     anims.walk?.stop();
     anims.idle?.stop();
     anims.tpose?.stop();
+  };
+
+  const stopSlamClips = () => {
+    for (const group of Object.values(anims.slam)) {
+      group.stop();
+    }
+    playingSlam = null;
+  };
+
+  const stopClips = () => {
+    stopLocoClips();
+    stopSlamClips();
   };
 
   const playRun = (rate = 1) => {
@@ -262,24 +282,123 @@ export async function createMixamoAthlete(
     );
   };
 
+  const slamQuat = (bind: Quaternion, spin?: BoneSpin): Quaternion => {
+    if (!spin) return bind.clone();
+    return bind.multiply(Quaternion.FromEulerAngles(spin.x, spin.y, spin.z));
+  };
+
+  const buildSlamClip = (style: HangStyle): AnimationGroup => {
+    const keys = SLAM_CLIP_KEYS[style];
+    const fps = 60;
+    const duration = 0.4;
+    const endFrame = Math.round(duration * fps);
+    const group = new AnimationGroup(`${name}_slam_${style}`, scene);
+    const boneNames = new Set<string>();
+    for (const kf of keys) {
+      for (const boneName of Object.keys(kf.map)) boneNames.add(boneName);
+    }
+    for (const boneName of boneNames) {
+      const bone = bones.get(boneName);
+      const bind = rest.get(boneName);
+      if (!bone || !bind) continue;
+      const animKeys = keys.map((kf) => ({
+        frame: Math.round(kf.t * endFrame),
+        value: slamQuat(bind, kf.map[boneName]),
+      }));
+      const makeAnim = (animName: string) => {
+        const anim = new Animation(
+          animName,
+          'rotationQuaternion',
+          fps,
+          Animation.ANIMATIONTYPE_QUATERNION,
+          Animation.ANIMATIONLOOPMODE_CONSTANT
+        );
+        anim.setKeys(animKeys.map((k) => ({ frame: k.frame, value: k.value.clone() })));
+        return anim;
+      };
+      group.addTargetedAnimation(makeAnim(`${name}_${style}_${boneName}`), bone);
+      const node = bone.getTransformNode();
+      if (node) {
+        if (!node.rotationQuaternion) node.rotationQuaternion = bind.clone();
+        group.addTargetedAnimation(makeAnim(`${name}_${style}_${boneName}_node`), node);
+      }
+    }
+    group.normalize(0, endFrame);
+    group.onAnimationGroupEndObservable.add(() => {
+      group.goToFrame(endFrame);
+      group.pause();
+    });
+    return group;
+  };
+
+  (['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHAWK', '360_SPIN'] as HangStyle[]).forEach((style) => {
+    anims.slam[style] = buildSlamClip(style);
+  });
+
+  const flushPose = () => {
+    skeleton?.computeAbsoluteTransforms();
+    root.computeWorldMatrix(true);
+  };
+
+  const applySlamFrame = (style: HangStyle, t01: number) => {
+    const map = sampleSlamMap(style, t01);
+    for (const [boneName, bind] of rest) {
+      const bone = bones.get(boneName);
+      if (!bone) continue;
+      writeLocal(bone, slamQuat(bind, map[boneName]));
+    }
+    flushPose();
+  };
+
+  const seekSlam = (style: HangStyle, t01: number) => {
+    stopLocoClips();
+    for (const [other, group] of Object.entries(anims.slam)) {
+      if (other !== style) group.stop();
+    }
+    const group = anims.slam[style];
+    if (group) {
+      const frame = Math.max(0, Math.min(1, t01)) * group.to;
+      group.start(false, 1, 0, group.to);
+      group.goToFrame(frame);
+      group.pause();
+    }
+    playingSlam = style;
+    applySlamFrame(style, t01);
+  };
+
+  const playSlam = (style: HangStyle, t01?: number) => {
+    const group = anims.slam[style];
+    if (!group) return;
+    stopLocoClips();
+    if (playingSlam !== style) {
+      stopSlamClips();
+      group.start(false, 1, 0, group.to);
+      playingSlam = style;
+    } else if (!group.isPlaying) {
+      group.goToFrame(group.to);
+      group.pause();
+    }
+    applySlamFrame(style, t01 ?? (group.isPlaying ? 0 : 1));
+  };
+
   const poseReverseTwoHand = (intensity: number) => {
-    applyLocalSlam(SLAM_SPINS.REVERSE_TWO_HAND, intensity);
+    seekSlam('REVERSE_TWO_HAND', intensity);
   };
 
   const poseTomahawk = (intensity: number) => {
-    applyLocalSlam(SLAM_SPINS.TOMAHAWK, intensity);
+    seekSlam('TOMAHAWK', intensity);
   };
 
   const poseWindmill = (intensity: number) => {
-    applyLocalSlam(SLAM_SPINS.WINDMILL, intensity);
+    seekSlam('WINDMILL', intensity);
   };
 
   const poseThreeSixty = (intensity: number) => {
-    applyLocalSlam(SLAM_SPINS['360_SPIN'], intensity);
+    seekSlam('360_SPIN', intensity);
   };
 
   const poseHangStyle = (style: HangStyle, intensity: number) => {
-    applyLocalSlam(SLAM_SPINS[style], intensity);
+    seekSlam(style, intensity);
   };
 
   const poseSit = () => {
@@ -332,6 +451,7 @@ export async function createMixamoAthlete(
 
   const dispose = () => {
     stopClips();
+    Object.values(anims.slam).forEach((g) => g.dispose());
     instance.animationGroups.forEach((g) => g.dispose());
     instance.skeletons.forEach((s) => s.dispose());
     instance.rootNodes.forEach((n) => n.dispose());
@@ -349,6 +469,8 @@ export async function createMixamoAthlete(
     playRun,
     playIdle,
     stopClips,
+    playSlam,
+    seekSlam,
     posePlant,
     poseTakeoff,
     poseReverseTwoHand,

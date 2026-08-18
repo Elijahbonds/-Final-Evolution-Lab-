@@ -44,13 +44,24 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
   const styles: HangStyle[] = ['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHAWK', '360_SPIN'];
   const posed = {} as Record<HangStyle, { l: Vector3; r: Vector3; h: Vector3 }>;
   for (const style of styles) {
-    athlete.poseHangStyle(style, 1);
+    athlete.seekSlam(style, 1);
     posed[style] = {
       l: athlete.boneWorld('LeftHand'),
       r: athlete.boneWorld('RightHand'),
       h: athlete.boneWorld('Head'),
     };
   }
+
+  athlete.seekSlam('WINDMILL', 0);
+  const mill0 = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
+  athlete.seekSlam('WINDMILL', 0.32);
+  const millMid = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
+  athlete.seekSlam('WINDMILL', 1);
+  const millEnd = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
+  const millSweep =
+    dist(millMid.l, mill0.l) > 0.12 &&
+    dist(millEnd.l, millMid.l) > 0.1 &&
+    athlete.anims.slam.WINDMILL.targetedAnimations.length > 0;
 
   const rev = posed.REVERSE_TWO_HAND;
   const mill = posed.WINDMILL;
@@ -83,9 +94,9 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
     },
     {
       name: 'Windmill and tomahawk change the seen hands, not just a 360 yaw',
-      passed: millDifferent && hawkChop && wrapNotReverse,
-      actual: `millΔ=${dist(mill.l, rev.l).toFixed(3)} hawkR-L=${(hawk.r.y - hawk.l.y).toFixed(3)} spinΔ=${dist(spin.l, rev.l).toFixed(3)}`,
-      expected: 'windmill offset, tomahawk right high / left low, 360 wrap lower',
+      passed: millDifferent && hawkChop && wrapNotReverse && millSweep,
+      actual: `millΔ=${dist(mill.l, rev.l).toFixed(3)} hawkR-L=${(hawk.r.y - hawk.l.y).toFixed(3)} spinΔ=${dist(spin.l, rev.l).toFixed(3)} millSweep=${dist(millMid.l, mill0.l).toFixed(3)}→${dist(millEnd.l, millMid.l).toFixed(3)} clips=${athlete.anims.slam.WINDMILL.targetedAnimations.length}`,
+      expected: 'windmill clip sweeps the left hand; tomahawk right high / left low; 360 wrap lower',
     },
   ];
 
