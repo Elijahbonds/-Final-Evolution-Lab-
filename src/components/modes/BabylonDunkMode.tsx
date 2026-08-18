@@ -12,7 +12,7 @@ import {
   ContactOutcome,
   DunkPhase,
 } from '../../core/VeniceDunkLoop';
-import { VENICE_RESULT_COPY, caseMissSub } from '../../core/veniceResultCopy';
+import { VENICE_RESULT_COPY, caseMissHeadline, caseMissSub } from '../../core/veniceResultCopy';
 import { SoundJuice } from '../../lib/judgeScoring';
 
 interface BabylonDunkModeProps {
@@ -131,6 +131,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         if (snap.phase === 'BLOWN') {
           athlete.stopClips();
           court.reactCrowd('miss', 0.7);
+          setResult(snap.outcome);
+          setMetrics(snap.metrics);
           setCue(snap.gatherMiss === 'EARLY' ? 'EARLY' : 'LATE');
         }
       }
@@ -353,7 +355,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           <div className="px-4 py-3 rounded-2xl bg-black/70 border border-[#00F2FF]/30 backdrop-blur-md">
             <div className="mb-1">
               <div className={`text-sm font-orbitron font-black ${result?.isMake ? 'text-[#00FF9D]' : 'text-red-400'}`}>
-                {result?.isMake ? copy.makeHeadline : copy.missHeadline}
+                {result?.isMake ? copy.makeHeadline : caseMissHeadline(result?.missReason ?? null)}
               </div>
               <div className="text-[10px] font-mono text-zinc-300 mt-0.5">
                 {result?.isMake ? copy.makeSub : caseMissSub(result?.missReason ?? null)}

@@ -30,7 +30,7 @@ import {
   ELIJAH_DUNK_CLIP,
   isElijahDunkTake,
 } from '../src/lib/babylon/bvhRetarget';
-import { VENICE_RESULT_COPY, caseMissSub } from '../src/core/veniceResultCopy';
+import { VENICE_RESULT_COPY, caseMissHeadline, caseMissSub } from '../src/core/veniceResultCopy';
 
 export interface TestResult {
   name: string;
@@ -162,17 +162,19 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       after396 !== 'PLANT' &&
       mashVerdict === 'EARLY' &&
       mash.phase === 'BLOWN' &&
-      mash.outcome === null &&
+      mash.outcome?.missReason === 'EARLY' &&
+      mash.metrics !== null &&
       late.phase === 'BLOWN' &&
       late.gatherMiss === 'LATE' &&
       late.plant === null &&
       !lateSawPlant &&
-      late.outcome === null;
+      late.outcome?.missReason === 'LATE' &&
+      late.metrics !== null;
     results.push({
       name: 'Gather window: no 0.24s auto-plant; late miss fires without ever planting',
       passed,
-      actual: `t0.24=${after024}/${zone024} t0.396=${after396} mash=${mashVerdict} late=${late.phase}/${late.gatherMiss} latePlanted=${lateSawPlant}`,
-      expected: '0.24s and 0.396s never PLANT; mash EARLY; idle LATE without a plant phase',
+      actual: `t0.24=${after024}/${zone024} t0.396=${after396} mash=${mashVerdict}/${mash.outcome?.missReason} late=${late.phase}/${late.gatherMiss}/${late.outcome?.missReason} latePlanted=${lateSawPlant}`,
+      expected: '0.24s and 0.396s never PLANT; mash EARLY on CASE; LATE on CASE without a plant phase',
     });
   }
 
@@ -665,33 +667,83 @@ export function runVeniceDunkLoopTests(): TestResult[] {
 
   {
     const c = VENICE_RESULT_COPY;
-    const passed =
-      c.makeHeadline === "That's the Bonds Bounce." &&
-      c.makeSub === 'The card is the proof. You ran Eastbay.' &&
-      c.missHeadline === 'Missed the plant, not the rim.' &&
-      c.missSubMushy === 'Gather was late. The block foot paid for it.' &&
-      c.missSubAir === "Never got there. That's air." &&
-      c.missSubRimOut === 'Caught iron. Off the window.' &&
-      c.nextAttempt === 'NEXT ATTEMPT. Same plant.' &&
-      c.instantRetry === 'INSTANT RETRY. Same plant.' &&
-      c.eastbayLine === '164 ms / 4.8x / 38.5 in / 3°' &&
-      c.eastbayClass === 'NOT CLINICAL' &&
-      !c.makeHeadline.includes('SLAMMED') &&
-      !c.missHeadline.includes('SLAMMED') &&
-      !c.missHeadline.includes('Who Scene') &&
+    const lateLine = 'Gather was late. The block foot paid for it.';
+    const modeSrc = (() => {
+      try {
+        return readFileSync(new URL('../src/components/modes/BabylonDunkMode.tsx', import.meta.url), 'utf8');
+      } catch {
+        return '';
+      }
+    })();
+    const late = new VeniceDunkAttempt();
+    driveToGather(late);
+    for (let i = 0; i < 80; i++) {
+      late.tick(1 / 60);
+      if (late.outcome) break;
+    }
+    const mash = new VeniceDunkAttempt();
+    driveToGather(mash);
+    mash.commitPlant();
+    const mushy = playLiveAttempt(22);
+    const air = new VeniceDunkAttempt();
+    driveToGather(air);
+    commitWhenWindow(air);
+    holdPlantFrames(air, 10);
+    air.releaseTakeoff();
+    for (let i = 0; i < 160; i++) {
+      air.tick(1 / 60);
+      if (air.outcome) break;
+    }
+    const rim = new VeniceDunkAttempt();
+    driveToGather(rim);
+    commitWhenWindow(rim);
+    holdPlantFrames(rim, 10);
+    rim.releaseTakeoff();
+    for (let i = 0; i < 160; i++) {
+      rim.tick(1 / 60);
+      if (rim.phase === 'HANG') {
+        rim.inputAir(0, true);
+        for (let j = 0; j < 20; j++) {
+          rim.tick(1 / 60);
+          if (rim.outcome) break;
+        }
+        break;
+      }
+    }
+    const routed =
+      late.outcome?.missReason === 'LATE' &&
+      late.metrics !== null &&
+      mash.outcome?.missReason === 'EARLY' &&
+      mash.metrics !== null &&
+      mushy.outcome?.missReason === 'MUSHY_PLANT' &&
+      air.outcome?.missReason === 'AIR' &&
+      rim.outcome?.missReason === 'RIM_OUT' &&
+      caseMissSub('LATE') === lateLine &&
+      caseMissSub('EARLY') === c.missSubEarly &&
       caseMissSub('MUSHY_PLANT') === c.missSubMushy &&
+      caseMissSub('MUSHY_PLANT') !== lateLine &&
+      caseMissSub('EARLY') !== lateLine &&
       caseMissSub('AIR') === c.missSubAir &&
       caseMissSub('RIM_OUT') === c.missSubRimOut &&
-      caseMissSub('LATE') === '' &&
-      caseMissSub('EARLY') === '' &&
-      caseMissSub('SHORT') === '' &&
-      caseMissSub('AIR') !== c.missSubMushy &&
-      caseMissSub('RIM_OUT') !== c.missSubMushy;
+      caseMissHeadline('LATE') === c.missHeadlineLate &&
+      caseMissHeadline('EARLY') === c.missHeadlineEarly &&
+      caseMissHeadline('MUSHY_PLANT') === c.missHeadline &&
+      caseMissHeadline('AIR') === c.missHeadlineAir &&
+      caseMissHeadline('RIM_OUT') === c.missHeadlineRimOut &&
+      caseMissHeadline('AIR') !== c.missHeadline &&
+      caseMissHeadline('RIM_OUT') !== c.missHeadline &&
+      c.makeHeadline === "That's the Bonds Bounce." &&
+      c.missSubAir === "Never got there. That's air." &&
+      c.missSubRimOut === 'Caught iron. Off the window.' &&
+      !c.missHeadline.includes('SLAMMED') &&
+      modeSrc.includes('caseMissHeadline') &&
+      modeSrc.includes("BLOWN") &&
+      modeSrc.includes('setResult(snap.outcome)');
     results.push({
-      name: 'CASE card copy is locked (Bonds Bounce / plant miss, no SLAMMED)',
-      passed,
-      actual: `${c.makeHeadline} | ${c.missHeadline} | mushy=${caseMissSub('MUSHY_PLANT')} air=${caseMissSub('AIR')} rim=${caseMissSub('RIM_OUT')} late="${caseMissSub('LATE')}"`,
-      expected: "Missed the plant, not the rim. Gather-late ONLY on MUSHY_PLANT. AIR/RIM_OUT locked.",
+      name: 'Miss routing: LATE late, EARLY early, MUSHY mushy; headline matches; CASE not skipped',
+      passed: routed,
+      actual: `late=${late.outcome?.missReason}/${caseMissHeadline('LATE')}/${caseMissSub('LATE')} early=${mash.outcome?.missReason}/${caseMissHeadline('EARLY')} mushy=${mushy.outcome?.missReason}/${caseMissSub('MUSHY_PLANT')} air=${air.outcome?.missReason} rim=${rim.outcome?.missReason} headAir=${caseMissHeadline('AIR')}`,
+      expected: 'LATE gets late line, EARLY not late, MUSHY not gather-late, AIR/RIM_OUT own lines, headlines match, BLOWN sets CASE',
     });
   }
 

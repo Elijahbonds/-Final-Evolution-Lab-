@@ -167,11 +167,11 @@ export function decideContact(
   airFinish: AirFinish = 'WINDOW',
   gatherMiss: GatherCommit | null = null
 ): ContactOutcome {
-  if (gatherBlown || gatherMiss === 'EARLY') {
-    return { isMake: false, missReason: 'EARLY', rimDeflectionM: 0 };
-  }
   if (gatherMiss === 'LATE') {
     return { isMake: false, missReason: 'LATE', rimDeflectionM: 0 };
+  }
+  if (gatherBlown || gatherMiss === 'EARLY') {
+    return { isMake: false, missReason: 'EARLY', rimDeflectionM: 0 };
   }
   if (airFinish === 'NONE') {
     return { isMake: false, missReason: 'AIR', rimDeflectionM: 0 };
@@ -327,6 +327,7 @@ export class VeniceDunkAttempt {
       this.gatherBlown = true;
       this.phase = 'BLOWN';
       this.landElapsed = 0;
+      this.resolveGatherMiss();
       return verdict;
     }
     this.phase = 'PLANT';
@@ -386,6 +387,7 @@ export class VeniceDunkAttempt {
           this.gatherMiss = 'LATE';
           this.phase = 'BLOWN';
           this.landElapsed = 0;
+          this.resolveGatherMiss();
         }
         break;
       }
@@ -524,6 +526,24 @@ export class VeniceDunkAttempt {
     this.contactElapsed = 0;
     this.hangEndY = this.posY;
     this.resolveContact();
+  }
+
+  private resolveGatherMiss(): void {
+    const plant = this.plant ?? {
+      gctMs: 0,
+      trunkLeanDeg: 0,
+      compression01: 0,
+      approachSpeed: this.approachSpeed,
+    };
+    this.outcome = decideContact(
+      this.gatherBlown,
+      plant,
+      this.takeoffApexY,
+      this.rimY,
+      'NONE',
+      this.gatherMiss
+    );
+    this.metrics = metricsFromPlant(plant, this.takeoffApexY, STANDING_ROOT_Y);
   }
 
   private resolveContact(): void {
