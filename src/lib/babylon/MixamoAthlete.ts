@@ -25,7 +25,7 @@ import {
   ShadowGenerator,
 } from '@babylonjs/core';
 import { sanitizeBoneName } from '../rigSanitizer';
-import { HangStyle, SLAM_CLIP_KEYS, SlamMap, BoneSpin } from './slamSilhouettes';
+import { HangStyle, HANG_STYLES, SLAM_TRACKS, slamTrackFrame, sampleTrackQuat } from './slamClips';
 
 export interface MixamoAthlete {
   root: TransformNode;
@@ -61,7 +61,7 @@ export interface MixamoAthlete {
 }
 
 export type CrowdReact = 'sit' | 'watch' | 'rise' | 'cheer' | 'miss';
-export type { HangStyle } from './slamSilhouettes';
+export type { HangStyle } from './slamClips';
 
 const containers = new WeakMap<Scene, AssetContainer>();
 
@@ -205,7 +205,7 @@ export async function createMixamoAthlete(
     }
   };
 
-  const slamQuat = (bind: Quaternion, spin?: BoneSpin): Quaternion => {
+  const slamQuat = (bind: Quaternion, spin?: { x: number; y: number; z: number }): Quaternion => {
     if (!spin) return bind.clone();
     return bind.multiply(Quaternion.FromEulerAngles(spin.x, spin.y, spin.z));
   };
@@ -231,7 +231,7 @@ export async function createMixamoAthlete(
     basketball.position.set(0.04, 0.08, 0.02);
   };
 
-  const applyPoseMap = (map: SlamMap, intensity: number) => {
+  const applyPoseMap = (map: Record<string, { x: number; y: number; z: number }>, intensity: number) => {
     stopLocoClips();
     stopSlamClips();
     const i = Math.max(0, Math.min(1, intensity));
@@ -295,32 +295,27 @@ export async function createMixamoAthlete(
   };
 
   const buildSlamClip = (style: HangStyle): AnimationGroup => {
-    const keys = SLAM_CLIP_KEYS[style];
-    const fps = 60;
-    const duration = 0.4;
-    const endFrame = Math.round(duration * fps);
+    const track = SLAM_TRACKS[style];
     const group = new AnimationGroup(`${name}_slam_${style}`, scene);
-    const boneNames = new Set<string>();
-    for (const kf of keys) {
-      for (const boneName of Object.keys(kf.map)) boneNames.add(boneName);
-    }
-    for (const boneName of boneNames) {
+    const endFrame = Math.round(track.duration * track.fps);
+    for (const [boneName, keys] of Object.entries(track.bones)) {
       const bone = bones.get(boneName);
       const bind = rest.get(boneName);
       if (!bone || !bind) continue;
-      const animKeys = keys.map((kf) => ({
-        frame: Math.round(kf.t * endFrame),
-        value: slamQuat(bind, kf.map[boneName]),
-      }));
       const makeAnim = (animName: string) => {
         const anim = new Animation(
           animName,
           'rotationQuaternion',
-          fps,
+          track.fps,
           Animation.ANIMATIONTYPE_QUATERNION,
           Animation.ANIMATIONLOOPMODE_CONSTANT
         );
-        anim.setKeys(animKeys.map((k) => ({ frame: k.frame, value: k.value.clone() })));
+        anim.setKeys(
+          keys.map((k) => ({
+            frame: k.frame,
+            value: new Quaternion(k.q[0], k.q[1], k.q[2], k.q[3]),
+          }))
+        );
         return anim;
       };
       group.addTargetedAnimation(makeAnim(`${name}_${style}_${boneName}`), bone);
@@ -338,57 +333,59 @@ export async function createMixamoAthlete(
     return group;
   };
 
-  (['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHAWK', '360_SPIN'] as HangStyle[]).forEach((style) => {
+  HANG_STYLES.forEach((style) => {
     anims.slam[style] = buildSlamClip(style);
   });
 
-  const quatAtFrame = (anim: Animation, frame: number): Quaternion | null => {
-    const keys = anim.getKeys();
-    if (!keys.length) return null;
-    if (frame <= keys[0].frame) return (keys[0].value as Quaternion).clone();
-    const last = keys[keys.length - 1];
-    if (frame >= last.frame) return (last.value as Quaternion).clone();
-    let i = 1;
-    while (keys[i].frame < frame) i += 1;
-    const a = keys[i - 1];
-    const b = keys[i];
-    const u = (frame - a.frame) / Math.max(1e-6, b.frame - a.frame);
-    return Quaternion.Slerp(a.value as Quaternion, b.value as Quaternion, u);
-  };
-
-  const driveSlamClip = (style: HangStyle, t01: number) => {
-    stopLocoClips();
-    for (const [other, group] of Object.entries(anims.slam)) {
-      if (other !== style) group.stop();
+  const applyBakedSlamFrame = (style: HangStyle, t01: number) => {
+    const track = SLAM_TRACKS[style];
+    const frame = slamTrackFrame(track, t01);
+    for (const [boneName, keys] of Object.entries(track.bones)) {
+      const bone = bones.get(boneName);
+      const sampled = sampleTrackQuat(keys, frame);
+      if (!bone || !sampled) continue;
+      writeLocal(bone, Quaternion.FromArray(sampled));
     }
     const group = anims.slam[style];
-    if (!group) return;
-    const t = Math.max(0, Math.min(1, t01));
-    const frame = t * group.to;
-    group.start(false, 1, 0, group.to);
-    group.goToFrame(frame);
-    group.pause();
-    for (const { animation, target } of group.targetedAnimations) {
-      const q = quatAtFrame(animation, frame);
-      if (!q) continue;
-      if (target instanceof Bone) {
-        writeLocal(target, q);
-      } else if (target && 'rotationQuaternion' in target) {
-        const node = target as TransformNode;
-        if (!node.rotationQuaternion) node.rotationQuaternion = q;
-        else node.rotationQuaternion.copyFrom(q);
-      }
+    if (group) {
+      group.start(false, 1, 0, group.to);
+      group.goToFrame(frame);
+      group.pause();
     }
     flushPose();
   };
 
+  let playingSlam: HangStyle | null = null;
+  let slamStartedMs = 0;
+
   const seekSlam = (style: HangStyle, t01: number) => {
-    driveSlamClip(style, t01);
+    stopLocoClips();
+    for (const [other, group] of Object.entries(anims.slam)) {
+      if (other !== style) group.stop();
+    }
+    playingSlam = style;
+    applyBakedSlamFrame(style, t01);
   };
 
   const playSlam = (style: HangStyle, t01?: number) => {
-    if (!anims.slam[style]) return;
-    driveSlamClip(style, t01 ?? 1);
+    const group = anims.slam[style];
+    if (!group) return;
+    stopLocoClips();
+    if (t01 != null) {
+      seekSlam(style, t01);
+      return;
+    }
+    if (playingSlam !== style) {
+      for (const [other, otherGroup] of Object.entries(anims.slam)) {
+        if (other !== style) otherGroup.stop();
+      }
+      playingSlam = style;
+      slamStartedMs = performance.now();
+      group.start(false, 1, 0, group.to);
+    }
+    const elapsed = (performance.now() - slamStartedMs) / 1000;
+    const t = Math.min(1, elapsed / Math.max(0.08, SLAM_TRACKS[style].duration));
+    applyBakedSlamFrame(style, t);
   };
 
   const poseReverseTwoHand = (intensity: number) => {

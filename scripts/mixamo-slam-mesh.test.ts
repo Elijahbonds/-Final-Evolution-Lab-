@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
 import { createMixamoAthlete } from '../src/lib/babylon/MixamoAthlete';
-import type { HangStyle } from '../src/lib/babylon/slamSilhouettes';
+import type { HangStyle } from '../src/lib/babylon/slamClips';
 
 if (typeof globalThis.FileReader === 'undefined') {
   class NodeFileReader {
@@ -85,6 +85,15 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
     (spin.l.y + spin.r.y) / 2 < (rev.l.y + rev.r.y) / 2 - 0.1 &&
     dist(spin.l, rev.l) > 0.2;
 
+  const src = readFileSync(new URL('../src/lib/babylon/MixamoAthlete.ts', import.meta.url), 'utf8');
+  const recipeFree =
+    !src.includes("from './slamSilhouettes'") &&
+    !src.includes('SLAM_CLIP_KEYS') &&
+    !src.includes('SLAM_SPINS') &&
+    src.includes('slamClips') &&
+    src.includes('applyBakedSlamFrame') &&
+    !src.includes('applyLocalSlam');
+
   const results = [
     {
       name: 'Reverse two-hand puts both Mixamo hands overhead (not a T-pose shrug)',
@@ -97,6 +106,12 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
       passed: millDifferent && hawkChop && wrapNotReverse && millSweep,
       actual: `millΔ=${dist(mill.l, rev.l).toFixed(3)} hawkR-L=${(hawk.r.y - hawk.l.y).toFixed(3)} spinΔ=${dist(spin.l, rev.l).toFixed(3)} millSweep=${dist(millMid.l, mill0.l).toFixed(3)}→${dist(millEnd.l, millMid.l).toFixed(3)} clips=${athlete.anims.slam.WINDMILL.targetedAnimations.length}`,
       expected: 'windmill clip sweeps the left hand; tomahawk right high / left low; 360 wrap lower',
+    },
+    {
+      name: 'Dunker slam path is baked clips, not slamSilhouettes Euler after resetPose',
+      passed: recipeFree,
+      actual: `importsSilhouettes=${src.includes("from './slamSilhouettes'")} clipKeys=${src.includes('SLAM_CLIP_KEYS')} spins=${src.includes('SLAM_SPINS')} baked=${src.includes('slamClips')}`,
+      expected: 'MixamoAthlete hang slam imports slamClips tracks, not slamSilhouettes maps',
     },
   ];
 

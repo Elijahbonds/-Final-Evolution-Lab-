@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
 import { createMixamoAthlete } from '../src/lib/babylon/MixamoAthlete';
-import type { HangStyle } from '../src/lib/babylon/slamSilhouettes';
+import type { HangStyle } from '../src/lib/babylon/slamClips';
 
 if (typeof globalThis.FileReader === 'undefined') {
   class NodeFileReader {
