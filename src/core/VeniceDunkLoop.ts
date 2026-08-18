@@ -50,22 +50,22 @@ export interface ContactOutcome {
 }
 
 export const PHASE_SECONDS = {
-  TAKEOFF: 0.30,
-  HANG: 0.50,
-  CONTACT: 0.20,
-  LAND: 0.34,
+  CONTACT: 0.14,
+  LAND: 0.36,
 } as const;
 
-/** Apex hold as a fraction of hang, then ballistic fall. */
-export const HANG_HOLD_P = 0.26;
-export const HANG_FALL_G = 8.2;
+export const AIR_G = 8.2;
+export const RIM_TARGET_IN = 0.42;
+export const RIM_FINISH_SLACK = 0.62;
+const PLANT_ROOT_Y = 0.04;
 
-export function hangDropFromApex(apexY: number, compression01 = 0.7): number {
-  const fallT = PHASE_SECONDS.HANG * (1 - HANG_HOLD_P);
-  const desired =
-    0.5 * HANG_FALL_G * fallT * fallT + (1 - clamp01(compression01)) * 0.08;
-  const ceiling = Math.max(0.28, apexY - 0.12);
-  return Math.min(desired, ceiling);
+export function takeoffRiseSeconds(apexY: number, plantY = PLANT_ROOT_Y, g = AIR_G): number {
+  return Math.sqrt((2 * Math.max(0.08, apexY - plantY)) / g);
+}
+
+export function hangDropFromApex(apexY: number, hangT: number): number {
+  const drop = 0.5 * AIR_G * Math.max(0, hangT) * Math.max(0, hangT);
+  return Math.min(drop, Math.max(0.08, apexY - 0.12));
 }
 
 export const PLANT_MARK_Z = -0.7;
@@ -91,7 +91,6 @@ export function gatherWindowState(rootZ: number, plantZ: number = PLANT_MARK_Z):
 }
 
 const STANDING_ROOT_Y = 0;
-const PLANT_ROOT_Y = 0.04;
 
 /** Takeoff y at p in [0,1]. p=1 is the apex handed to hang. */
 export function takeoffWorldY(p: number, plantY: number, apexY: number): number {
@@ -99,22 +98,10 @@ export function takeoffWorldY(p: number, plantY: number, apexY: number): number 
   return plantY + (apexY - plantY) * Math.sin(t * Math.PI * 0.5);
 }
 
-/**
- * Hang y at p in [0,1].
- * p=0 equals takeoff apex. First HANG_HOLD_P stays at apex (the hang),
- * then y falls ballistically. Never rises.
- */
-export function hangWorldY(
-  p: number,
-  takeoffApexY: number,
-  hangDropM: number,
-  holdP: number = HANG_HOLD_P
-): number {
+/** Hang y at p in [0,1]. p=0 equals takeoff apex. After apex, y only falls. */
+export function hangWorldY(p: number, takeoffApexY: number, hangDropM: number): number {
   const t = clamp01(p);
-  const hold = clamp01(holdP);
-  if (t <= hold) return takeoffApexY;
-  const f = (t - hold) / Math.max(1e-6, 1 - hold);
-  return takeoffApexY - Math.max(0, hangDropM) * f * f;
+  return takeoffApexY - Math.max(0, hangDropM) * t * t;
 }
 
 export function landWorldY(p: number, hangEndY: number, groundY: number): number {
@@ -152,9 +139,20 @@ export function judgeGatherCommit(rootZ: number, plantZ: number = PLANT_MARK_Z):
   return 'WINDOW';
 }
 
-export function judgeAirFinish(hangProgress: number, pressed: boolean): AirFinish {
-  if (!pressed) return 'NONE';
-  if (hangProgress < 0.28) return 'EARLY';
+export function judgeAirFinish(state: {
+  rootZ: number;
+  rootY: number;
+  apexY: number;
+  rimZ: number;
+  rising: boolean;
+  pressed: boolean;
+}): AirFinish {
+  if (!state.pressed) return 'NONE';
+  if (state.rising) return 'NONE';
+  const zErr = state.rootZ - (state.rimZ - RIM_TARGET_IN);
+  const fallen = state.apexY - state.rootY;
+  if (zErr < -RIM_FINISH_SLACK || fallen < 0.06) return 'EARLY';
+  if (zErr > 0.55) return 'EARLY';
   return 'WINDOW';
 }
 
@@ -211,6 +209,7 @@ export interface AttemptSnapshot {
   phase: DunkPhase;
   outcome: ContactOutcome | null;
   metrics: AttemptMetrics | null;
+  rootX: number;
   rootY: number;
   rootZ: number;
   rimYOffset: number;
@@ -221,8 +220,8 @@ export interface AttemptSnapshot {
 }
 
 /**
- * Clocked dunk attempt. Pointer-up starts GATHER — it does not lock isMake
- * and does not auto-plant. CONTACT is the first moment outcome exists.
+ * Dunk attempt. Gather is missable. After a WINDOW plant the body is ballistic,
+ * not a 0.30/0.50/0.20/0.34 tape. CONTACT is the first moment outcome exists.
  */
 export class VeniceDunkAttempt {
   phase: DunkPhase = 'IDLE';
@@ -249,8 +248,14 @@ export class VeniceDunkAttempt {
   compression01 = 0;
   takeoffApexY = 0;
   hangEndY = 0;
+  posX = 0;
+  posY = 0;
   posZ = 0;
+  velX = 0;
+  velY = 0;
+  velZ = 0;
   plantLeaveZ = 0;
+  pendingContact = false;
 
   readonly startZ: number;
   readonly rimZ: number;
@@ -288,8 +293,14 @@ export class VeniceDunkAttempt {
     this.compression01 = 0;
     this.takeoffApexY = 0;
     this.hangEndY = 0;
+    this.posX = 0;
+    this.posY = 0;
     this.posZ = this.startZ;
+    this.velX = 0;
+    this.velY = 0;
+    this.velZ = 0;
     this.plantLeaveZ = 0;
+    this.pendingContact = false;
   }
 
   startRunway(): void {
@@ -336,12 +347,21 @@ export class VeniceDunkAttempt {
    */
   inputAir(steerX = 0, replace = false): void {
     if (this.phase !== 'TAKEOFF' && this.phase !== 'HANG') return;
+    const wasHeld = this.airHeld;
     this.airSteer = Math.max(-1, Math.min(1, replace ? steerX : this.airSteer + steerX));
     this.style = styleFromAirSteer(this.airSteer);
     this.airHeld = true;
+    this.velX = this.airSteer * 1.8;
 
-    if (this.phase === 'HANG') {
-      this.airFinish = judgeAirFinish(this.hangElapsed / PHASE_SECONDS.HANG, true);
+    if (this.phase === 'HANG' && !wasHeld) {
+      const verdict = this.airJudge();
+      if (verdict === 'EARLY') {
+        this.airFinish = 'EARLY';
+        this.pendingContact = true;
+      } else if (verdict === 'WINDOW') {
+        this.airFinish = 'WINDOW';
+        this.pendingContact = true;
+      }
     }
   }
 
@@ -390,8 +410,10 @@ export class VeniceDunkAttempt {
       }
       case 'TAKEOFF': {
         this.takeoffElapsed += dt;
-        if (this.takeoffElapsed >= PHASE_SECONDS.TAKEOFF) {
-          this.takeoffElapsed = PHASE_SECONDS.TAKEOFF;
+        this.integrateAir(dt);
+        if (this.velY <= 0) {
+          this.takeoffApexY = this.posY;
+          this.velY = 0;
           this.phase = 'HANG';
           this.hangElapsed = 0;
         }
@@ -399,29 +421,35 @@ export class VeniceDunkAttempt {
       }
       case 'HANG': {
         this.hangElapsed += dt;
-        const hangP = this.hangElapsed / PHASE_SECONDS.HANG;
-        if (this.airHeld && this.airFinish === 'NONE' && hangP >= 0.28) {
+        this.integrateAir(dt);
+        const verdict = this.airJudge();
+        if (this.airHeld && verdict === 'WINDOW') {
           this.airFinish = 'WINDOW';
+          this.pendingContact = true;
         }
-        if (this.hangElapsed >= PHASE_SECONDS.HANG) {
-          this.hangElapsed = PHASE_SECONDS.HANG;
-          this.phase = 'CONTACT';
-          this.contactElapsed = 0;
-          this.resolveContact();
+        if (this.pendingContact || this.pastRim()) {
+          this.beginContact();
         }
         break;
       }
       case 'CONTACT': {
         this.contactElapsed += dt;
+        this.posZ += this.velZ * dt * 0.2;
+        this.posY += Math.min(0, this.velY) * dt * 0.25;
         if (this.contactElapsed >= PHASE_SECONDS.CONTACT) {
           this.phase = 'LAND';
           this.landElapsed = 0;
+          this.velY = Math.min(this.velY, -1.4);
         }
         break;
       }
       case 'LAND': {
         this.landElapsed += dt;
-        if (this.landElapsed >= PHASE_SECONDS.LAND) {
+        this.velY -= AIR_G * dt;
+        this.posY += this.velY * dt;
+        this.posZ += this.velZ * dt * 0.18;
+        if (this.posY <= STANDING_ROOT_Y || this.landElapsed >= 0.7) {
+          this.posY = STANDING_ROOT_Y;
           this.phase = 'IDLE';
         }
         break;
@@ -442,10 +470,54 @@ export class VeniceDunkAttempt {
     };
     this.takeoffApexY = plannedApexFromPlant(this.plant);
     this.plantLeaveZ = this.posZ;
+    this.posX = 0;
+    this.posY = PLANT_ROOT_Y;
+    this.velX = 0;
+    this.velY = Math.sqrt(2 * AIR_G * Math.max(0.08, this.takeoffApexY - PLANT_ROOT_Y));
+    this.velZ = 2.8 + this.approachSpeed * 0.48;
     this.phase = 'TAKEOFF';
     this.takeoffElapsed = 0;
+    this.hangElapsed = 0;
     this.airFinish = 'NONE';
     this.airHeld = false;
+    this.pendingContact = false;
+  }
+
+  private integrateAir(dt: number): void {
+    this.velY -= AIR_G * dt;
+    this.posY += this.velY * dt;
+    this.posZ += this.velZ * dt;
+    this.posX = clamp(this.posX + this.velX * dt, -0.9, 0.9);
+  }
+
+  private airJudge(): AirFinish {
+    return judgeAirFinish({
+      rootZ: this.posZ,
+      rootY: this.posY,
+      apexY: this.takeoffApexY,
+      rimZ: this.rimZ,
+      rising: this.phase === 'TAKEOFF' || this.velY > 0,
+      pressed: this.airHeld,
+    });
+  }
+
+  private pastRim(): boolean {
+    return (
+      this.posZ > this.rimZ + 0.22 ||
+      this.posY < 0.12 ||
+      this.hangElapsed > 1.6
+    );
+  }
+
+  private beginContact(): void {
+    if (this.phase === 'CONTACT' || this.outcome) return;
+    if (this.airFinish === 'NONE' && this.airHeld) {
+      this.airFinish = this.airJudge() === 'WINDOW' ? 'WINDOW' : 'EARLY';
+    }
+    this.phase = 'CONTACT';
+    this.contactElapsed = 0;
+    this.hangEndY = this.posY;
+    this.resolveContact();
   }
 
   private resolveContact(): void {
@@ -465,12 +537,14 @@ export class VeniceDunkAttempt {
       this.gatherMiss
     );
     this.metrics = metricsFromPlant(plant, this.takeoffApexY, STANDING_ROOT_Y);
-    this.hangEndY = hangWorldY(1, this.takeoffApexY, this.extraHang());
   }
 
   extraHang(): number {
-    const compression = this.plant?.compression01 ?? 0.7;
-    return hangDropFromApex(this.takeoffApexY || 0.7, compression);
+    return hangDropFromApex(this.takeoffApexY || 0.7, this.hangElapsed);
+  }
+
+  rootX(): number {
+    return this.posX;
   }
 
   rootY(): number {
@@ -484,47 +558,21 @@ export class VeniceDunkAttempt {
       case 'PLANT':
         return PLANT_ROOT_Y * (1 - this.compression01 * 0.4);
       case 'TAKEOFF':
-        return takeoffWorldY(
-          this.takeoffElapsed / PHASE_SECONDS.TAKEOFF,
-          PLANT_ROOT_Y,
-          this.takeoffApexY
-        );
       case 'HANG':
-        return hangWorldY(
-          this.hangElapsed / PHASE_SECONDS.HANG,
-          this.takeoffApexY,
-          this.extraHang()
-        );
       case 'CONTACT':
-        return hangWorldY(1, this.takeoffApexY, this.extraHang()) - 0.12 * clamp01(this.contactElapsed / PHASE_SECONDS.CONTACT);
       case 'LAND':
-        return landWorldY(this.landElapsed / PHASE_SECONDS.LAND, this.hangEndY || this.rimY - 0.2, STANDING_ROOT_Y);
+        return this.posY;
       default:
         return STANDING_ROOT_Y;
     }
   }
 
   rootZ(): number {
-    const takeoffZ = this.plantLeaveZ + 1.4;
-    const rimZ = this.rimZ;
     switch (this.phase) {
       case 'IDLE':
         return this.startZ;
-      case 'RUNWAY':
-      case 'GATHER':
-      case 'BLOWN':
-      case 'PLANT':
-        return this.posZ;
-      case 'TAKEOFF':
-        return lerp(this.plantLeaveZ, takeoffZ, clamp01(this.takeoffElapsed / PHASE_SECONDS.TAKEOFF));
-      case 'HANG':
-        return lerp(takeoffZ, rimZ - 0.52, Math.sin(clamp01(this.hangElapsed / PHASE_SECONDS.HANG) * Math.PI * 0.5));
-      case 'CONTACT':
-        return lerp(rimZ - 0.52, rimZ - 0.12, clamp01(this.contactElapsed / PHASE_SECONDS.CONTACT));
-      case 'LAND':
-        return lerp(rimZ - 0.12, rimZ + 0.2, clamp01(this.landElapsed / PHASE_SECONDS.LAND));
       default:
-        return this.startZ;
+        return this.posZ;
     }
   }
 
@@ -538,6 +586,7 @@ export class VeniceDunkAttempt {
       phase: this.phase,
       outcome: this.outcome,
       metrics: this.metrics,
+      rootX: this.rootX(),
       rootY: this.rootY(),
       rootZ: this.rootZ(),
       rimYOffset: this.rimYOffset(),
@@ -555,10 +604,6 @@ function clamp01(v: number): number {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * clamp01(t);
 }
 
 function round1(v: number): number {

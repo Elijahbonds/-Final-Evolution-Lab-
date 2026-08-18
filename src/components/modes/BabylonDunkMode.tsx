@@ -147,7 +147,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       court.tick(performance.now() / 1000);
       court.rim.position.y = court.hoopRestY + snap.rimYOffset;
 
-      athlete.root.position.x = 0;
+      athlete.root.position.x = snap.rootX;
       athlete.root.position.y = snap.rootY;
       athlete.root.position.z = snap.rootZ;
 
@@ -189,12 +189,12 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         athlete.root.rotation.x = (attempt.trunkLeanDeg * Math.PI) / 180 * 0.15;
       }
       if (snap.phase === 'TAKEOFF') {
-        const p = attempt.takeoffElapsed / 0.3;
+        const p = snap.takeoffApexY > 0.01 ? Math.max(0, Math.min(1, snap.rootY / snap.takeoffApexY)) : 0;
         athlete.poseTakeoff(p);
         athlete.root.rotation.x *= 1 - p;
       }
       if (snap.phase === 'HANG' || snap.phase === 'CONTACT') {
-        const p = snap.phase === 'HANG' ? attempt.hangElapsed / 0.5 : 1;
+        const p = snap.phase === 'HANG' ? Math.min(1, attempt.hangElapsed * 2.2) : 1;
         athlete.poseHangStyle(snap.style, 1);
         if (snap.style === '360_SPIN') {
           athlete.root.rotation.y = p * Math.PI * 2;

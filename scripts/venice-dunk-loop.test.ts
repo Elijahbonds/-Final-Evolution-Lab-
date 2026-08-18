@@ -7,7 +7,8 @@ import {
   EASTBAY_MASTER_STANDARD,
   hangWorldY,
   hangDropFromApex,
-  HANG_HOLD_P,
+  AIR_G,
+  takeoffRiseSeconds,
   takeoffWorldY,
   rimDeflectionY,
   metricsFromPlant,
@@ -52,11 +53,11 @@ function holdPlantFrames(attempt: VeniceDunkAttempt, frames: number): void {
 
 function finishAirToContact(attempt: VeniceDunkAttempt): void {
   if (attempt.phase === 'PLANT') attempt.releaseTakeoff();
-  for (let i = 0; i < 80; i++) {
-    attempt.tick(1 / 60);
-    if (attempt.phase === 'HANG' && attempt.hangElapsed / 0.5 >= 0.32) {
-      attempt.inputAir(0);
+  for (let i = 0; i < 160; i++) {
+    if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') {
+      attempt.inputAir(0, true);
     }
+    attempt.tick(1 / 60);
     if (attempt.outcome) break;
   }
 }
@@ -245,8 +246,8 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     let lastHangY = Number.POSITIVE_INFINITY;
     let plantBeforeOutcome = false;
     for (let i = 0; i < 200; i++) {
+      if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') attempt.inputAir(0, true);
       attempt.tick(1 / 60);
-      if (attempt.phase === 'HANG' && attempt.hangElapsed / 0.5 >= 0.32) attempt.inputAir(0);
       if (attempt.phase === 'HANG') {
         const y = attempt.rootY();
         if (firstHangY === null) {
@@ -330,7 +331,7 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     commitWhenWindow(attempt);
     holdPlantFrames(attempt, 10);
     attempt.releaseTakeoff();
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 160; i++) {
       attempt.tick(1 / 60);
       if (attempt.outcome) break;
     }
@@ -395,27 +396,22 @@ export function runVeniceDunkLoopTests(): TestResult[] {
   }
 
   {
-    const drop = hangDropFromApex(1.06, 0.81);
+    const drop = hangDropFromApex(1.06, 0.38);
     const hover = 0.10 + (1 - 0.81) * 0.12;
     const y0 = hangWorldY(0, 1.06, drop);
-    const yHold = hangWorldY(HANG_HOLD_P * 0.8, 1.06, drop);
     const y1 = hangWorldY(1, 1.06, drop);
-    const fallT = 0.5 * (1 - HANG_HOLD_P);
-    const accel = (2 * drop) / (fallT * fallT);
     const passed =
-      drop >= 0.50 &&
+      drop >= 0.45 &&
       drop > hover + 0.25 &&
       Math.abs(y0 - 1.06) < 1e-9 &&
-      Math.abs(yHold - 1.06) < 1e-9 &&
       y1 < y0 - 0.4 &&
-      accel >= 6 &&
-      HANG_HOLD_P > 0.15 &&
-      HANG_HOLD_P < 0.4;
+      AIR_G >= 6 &&
+      Math.abs(takeoffRiseSeconds(1.06) - 0.3) > 0.08;
     results.push({
-      name: 'Hang holds apex then falls; not a 10-22cm hover',
+      name: 'Hang fall is ballistic from apex; takeoff rise is not a 0.30s tape',
       passed,
-      actual: `drop=${drop.toFixed(3)} hoverWas=${hover.toFixed(3)} y0=${y0.toFixed(3)} yHold=${yHold.toFixed(3)} y1=${y1.toFixed(3)} a=${accel.toFixed(2)} holdP=${HANG_HOLD_P}`,
-      expected: 'hold at apex, then drop >= 0.50m, fall accel >= 6',
+      actual: `drop=${drop.toFixed(3)} hoverWas=${hover.toFixed(3)} y0=${y0.toFixed(3)} y1=${y1.toFixed(3)} riseT=${takeoffRiseSeconds(1.06).toFixed(3)} g=${AIR_G}`,
+      expected: 'drop >= 0.45m from apex, rise time !== 0.30',
     });
   }
 
@@ -430,9 +426,9 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     let apex = 0;
     let rose = false;
     let last = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 160; i++) {
+      if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') attempt.inputAir(0, true);
       attempt.tick(1 / 60);
-      if (attempt.phase === 'TAKEOFF') attempt.inputAir(0, true);
       if (attempt.phase === 'HANG') {
         const y = attempt.rootY();
         if (y0 === null) {
@@ -452,13 +448,68 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       y0 !== null &&
       Math.abs((y0 ?? 0) - apex) < 0.08 &&
       !rose &&
-      drop >= 0.4 &&
+      drop >= 0.25 &&
       attempt.outcome?.isMake === true;
     results.push({
-      name: 'Live hang falls from apex (>=40cm) and a takeoff press still finishes',
+      name: 'Live hang falls from apex and a takeoff hold still finishes at the rim',
       passed,
       actual: `drop=${drop.toFixed(3)} hang0=${y0?.toFixed(3)} apex=${apex.toFixed(3)} rose=${rose} make=${attempt.outcome?.isMake}`,
-      expected: 'continuous apex, fall >= 0.40m, takeoff press → make',
+      expected: 'continuous apex, ballistic fall, takeoff hold → make at the rim',
+    });
+  }
+
+  {
+    const a = playLiveAttempt(10);
+    const b = playLiveAttempt(22);
+    const takeoffA = a.takeoffElapsed;
+    const takeoffB = b.takeoffElapsed;
+    const hangA = a.hangElapsed;
+    const tape =
+      Math.abs(takeoffA - 0.3) < 0.012 &&
+      Math.abs(hangA - 0.5) < 0.012;
+    const passed =
+      !tape &&
+      Math.abs(takeoffA - 0.3) > 0.05 &&
+      Math.abs(hangA - 0.5) > 0.05 &&
+      Math.abs(takeoffA - takeoffB) > 0.02 &&
+      hangA > 0.12 &&
+      hangA < 1.2 &&
+      a.outcome?.isMake === true;
+    results.push({
+      name: 'Air after WINDOW plant is not a 0.30/0.50 tape; plant changes rise time',
+      passed,
+      actual: `takeoffA=${takeoffA.toFixed(3)} takeoffB=${takeoffB.toFixed(3)} hangA=${hangA.toFixed(3)} tape=${tape} make=${a.outcome?.isMake}`,
+      expected: 'takeoff !== 0.30, hang !== 0.50, different plants different rise, make still possible',
+    });
+  }
+
+  {
+    const early = new VeniceDunkAttempt();
+    driveToGather(early);
+    commitWhenWindow(early);
+    holdPlantFrames(early, 10);
+    early.releaseTakeoff();
+    for (let i = 0; i < 160; i++) {
+      early.tick(1 / 60);
+      if (early.phase === 'HANG') {
+        early.inputAir(0, true);
+        for (let j = 0; j < 20; j++) {
+          early.tick(1 / 60);
+          if (early.outcome) break;
+        }
+        break;
+      }
+    }
+    const passed =
+      early.outcome !== null &&
+      early.outcome.isMake === false &&
+      early.outcome.missReason === 'RIM_OUT' &&
+      early.hangElapsed < 0.2;
+    results.push({
+      name: 'First hang press far from the rim is an early miss, not a 0.50s QTE window',
+      passed,
+      actual: `reason=${early.outcome?.missReason} hangT=${early.hangElapsed.toFixed(3)} make=${early.outcome?.isMake}`,
+      expected: 'RIM_OUT on first hang press while short of the rim',
     });
   }
 
