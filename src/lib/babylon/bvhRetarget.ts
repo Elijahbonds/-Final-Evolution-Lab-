@@ -134,16 +134,46 @@ export function parseBvh(text: string): ParsedBvh {
     if (nums.length) frames.push(nums);
     i += 1;
   }
-  const hangEnd = metaHead.hangEnd >= 0 ? metaHead.hangEnd : Math.max(0, frames.length - 1);
+  const inferred = inferHangWindow(joints, frames);
+  const hangStart = metaHead.hangEnd >= 0 ? metaHead.hangStart : inferred.hangStart;
+  const hangEnd = metaHead.hangEnd >= 0 ? metaHead.hangEnd : inferred.hangEnd;
   return {
     meta: {
       ...metaHead,
+      hangStart,
       hangEnd,
       frameCount: frames.length || frameCount,
       frameTime,
     },
     joints,
     frames,
+  };
+}
+
+/** Apex through rim: start at peak Hips Y, play the drop — not the gather. */
+export function inferHangWindow(
+  joints: BvhJoint[],
+  frames: number[][]
+): { hangStart: number; hangEnd: number } {
+  const last = Math.max(0, frames.length - 1);
+  const hips = joints.find((j) => mapBvhJointToMixamo(j.name) === 'Hips');
+  const yi = hips?.channels.indexOf('Yposition') ?? -1;
+  if (!hips || yi < 0 || frames.length < 8) {
+    return { hangStart: 0, hangEnd: last };
+  }
+  const ys = frames.map((f) => f[hips.channelOffset + yi] ?? 0);
+  let peak = 0;
+  for (let i = 1; i < ys.length; i++) {
+    if (ys[i] > ys[peak]) peak = i;
+  }
+  const ymin = ys.reduce((m, y) => Math.min(m, y), ys[0]);
+  const ymax = ys[peak];
+  const thr = ymin + 0.7 * (ymax - ymin);
+  let end = peak;
+  while (end < last && ys[end + 1] >= thr) end += 1;
+  return {
+    hangStart: peak,
+    hangEnd: Math.min(last, end + 6),
   };
 }
 

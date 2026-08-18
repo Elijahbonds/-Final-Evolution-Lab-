@@ -19,7 +19,13 @@ import {
   VeniceDunkAttempt,
 } from '../src/core/VeniceDunkLoop';
 import { readFileSync } from 'node:fs';
-import { parseBvh, ELIJAH_DUNK_BVH, ELIJAH_DUNK_CLIP, isElijahDunkTake } from '../src/lib/babylon/bvhRetarget';
+import {
+  parseBvh,
+  hangFrame01,
+  ELIJAH_DUNK_BVH,
+  ELIJAH_DUNK_CLIP,
+  isElijahDunkTake,
+} from '../src/lib/babylon/bvhRetarget';
 import { VENICE_RESULT_COPY, caseMissSub } from '../src/core/veniceResultCopy';
 
 export interface TestResult {
@@ -390,6 +396,17 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     }
     const parsed = bvhText ? parseBvh(bvhText) : null;
     const name = parsed?.meta.clipName ?? '';
+    const hangSpan = parsed ? parsed.meta.hangEnd - parsed.meta.hangStart : 0;
+    const t0 = parsed ? hangFrame01(parsed.meta, 0) : -1;
+    const t1 = parsed ? hangFrame01(parsed.meta, 1) : -1;
+    const windowed =
+      !!parsed &&
+      parsed.meta.hangStart > 50 &&
+      hangSpan > 8 &&
+      hangSpan < 80 &&
+      t0 === parsed.meta.hangStart &&
+      t1 === parsed.meta.hangEnd &&
+      t1 < parsed.frames.length - 100;
     const passed =
       !!parsed &&
       isElijahDunkTake(bvhText) &&
@@ -397,14 +414,15 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       parsed.joints.length > 10 &&
       name === ELIJAH_DUNK_CLIP &&
       !name.includes('SLAM_CLIP') &&
-      !name.includes('cmu');
+      !name.includes('cmu') &&
+      windowed;
     results.push({
-      name: 'Hang body is basketball_dunk__elijah.bvh — CMU 124_06 is not BODY YES',
+      name: 'Hang body is basketball_dunk__elijah.bvh windowed apex-through-rim, not the whole take',
       passed,
       actual: parsed
-        ? `clip=${name} frames=${parsed.frames.length} joints=${parsed.joints.length} hang=${parsed.meta.hangStart}-${parsed.meta.hangEnd}`
+        ? `clip=${name} frames=${parsed.frames.length} hang=${parsed.meta.hangStart}-${parsed.meta.hangEnd} t0=${t0} t1=${t1}`
         : `missing public/assets/${ELIJAH_DUNK_BVH}; CMU lay-up is not the hang take`,
-      expected: 'clip_name basketball_dunk__elijah from FEL-unity, not cmu_124_06_basketball_layup',
+      expected: 'one Elijah take; hangFrame01(0..1) is apex→rim, not 0→2028',
     });
   }
 
