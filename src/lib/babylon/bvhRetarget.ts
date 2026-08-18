@@ -1,6 +1,6 @@
 /**
  * Parse a BVH take and retarget it onto the Mixamo 65-bone / mixamorig skin.
- * Hang plays this AnimationGroup. It is not SLAM_CLIP_KEYS.
+ * Hang, plant, and takeoff play windows on this AnimationGroup. It is not SLAM_CLIP_KEYS.
  */
 
 import {
@@ -26,6 +26,12 @@ export interface BvhTakeMeta {
   hangEnd: number;
   /** Rim pose in the hang window. Not hangEnd — hangEnd can be the land squash. */
   hangContact: number;
+  /** Last gather/plant on the floor, before hangStart. */
+  plantStart: number;
+  plantEnd: number;
+  /** Rise from that plant into apex (hangStart). */
+  takeoffStart: number;
+  takeoffEnd: number;
   frameCount: number;
   frameTime: number;
 }
@@ -74,7 +80,18 @@ export function mapBvhJointToMixamo(raw: string): string {
   return clean;
 }
 
-function readMeta(text: string): Omit<BvhTakeMeta, 'frameCount' | 'frameTime' | 'hangContact'> {
+function readMeta(
+  text: string
+): Omit<
+  BvhTakeMeta,
+  | 'frameCount'
+  | 'frameTime'
+  | 'hangContact'
+  | 'plantStart'
+  | 'plantEnd'
+  | 'takeoffStart'
+  | 'takeoffEnd'
+> {
   let clipName = ELIJAH_DUNK_CLIP;
   let source = ELIJAH_DUNK_BVH;
   let restRelative = false;
@@ -140,12 +157,14 @@ export function parseBvh(text: string): ParsedBvh {
   const hangStart = metaHead.hangEnd >= 0 ? metaHead.hangStart : inferred.hangStart;
   const hangEnd = metaHead.hangEnd >= 0 ? metaHead.hangEnd : inferred.hangEnd;
   const hangContact = Math.max(hangStart, Math.min(hangEnd, inferred.hangContact));
+  const approach = inferApproachWindows(joints, frames, hangStart);
   return {
     meta: {
       ...metaHead,
       hangStart,
       hangEnd,
       hangContact,
+      ...approach,
       frameCount: frames.length || frameCount,
       frameTime,
     },
@@ -179,6 +198,42 @@ export function inferHangWindow(
     hangStart: peak,
     hangEnd: Math.min(last, end + 6),
     hangContact: end,
+  };
+}
+
+function hipsY(joints: BvhJoint[], frames: number[][]): number[] | null {
+  const hips = joints.find((j) => mapBvhJointToMixamo(j.name) === 'Hips');
+  const yi = hips?.channels.indexOf('Yposition') ?? -1;
+  if (!hips || yi < 0) return null;
+  return frames.map((f) => f[hips.channelOffset + yi] ?? 0);
+}
+
+/**
+ * Same take as hang: last floor gather/plant, then the rise into hangStart.
+ * Does not use another clip when this take has a plant before apex.
+ */
+export function inferApproachWindows(
+  joints: BvhJoint[],
+  frames: number[][],
+  hangStart: number
+): { plantStart: number; plantEnd: number; takeoffStart: number; takeoffEnd: number } {
+  const apex = Math.max(0, Math.min(hangStart, Math.max(0, frames.length - 1)));
+  const ys = hipsY(joints, frames);
+  if (!ys || apex < 8) {
+    return { plantStart: 0, plantEnd: apex, takeoffStart: 0, takeoffEnd: apex };
+  }
+  let takeoffStart = apex;
+  while (takeoffStart > 1 && ys[takeoffStart - 1] < ys[takeoffStart]) takeoffStart -= 1;
+  let plantStart = takeoffStart;
+  while (plantStart > 1 && ys[plantStart - 1] >= ys[plantStart]) plantStart -= 1;
+  if (takeoffStart - plantStart < 6) {
+    plantStart = Math.max(0, takeoffStart - 12);
+  }
+  return {
+    plantStart,
+    plantEnd: takeoffStart,
+    takeoffStart,
+    takeoffEnd: apex,
   };
 }
 
@@ -276,12 +331,24 @@ export function buildMixamoGroupFromBvh(
   return { group, meta: parsed.meta };
 }
 
-export function hangFrame01(meta: BvhTakeMeta, t01: number): number {
+export function windowFrame01(start: number, end: number, t01: number): number {
   const t = Math.max(0, Math.min(1, t01));
-  const start = Math.max(0, meta.hangStart);
-  const end = Math.max(start, meta.hangEnd);
-  const span = Math.max(1, end - start);
-  return start + t * span;
+  const a = Math.max(0, start);
+  const b = Math.max(a, end);
+  const span = Math.max(1, b - a);
+  return a + t * span;
+}
+
+export function hangFrame01(meta: BvhTakeMeta, t01: number): number {
+  return windowFrame01(meta.hangStart, meta.hangEnd, t01);
+}
+
+export function plantFrame01(meta: BvhTakeMeta, t01: number): number {
+  return windowFrame01(meta.plantStart, meta.plantEnd, t01);
+}
+
+export function takeoffFrame01(meta: BvhTakeMeta, t01: number): number {
+  return windowFrame01(meta.takeoffStart, meta.takeoffEnd, t01);
 }
 
 /** CONTACT samples this t01 — the rim pose, not hangFrame01(..., 1) land squash. */

@@ -24,19 +24,15 @@ import {
   ShadowGenerator,
 } from '@babylonjs/core';
 import { sanitizeBoneName } from '../rigSanitizer';
-import {
-  HangStyle,
-  APPROACH_TRACKS,
-  slamTrackFrame,
-  sampleTrackQuat,
-  type SlamTrack,
-} from './slamClips';
+import { HangStyle } from './slamClips';
 import {
   applyGroupFrame,
   buildMixamoGroupFromBvh,
   hangContactT01,
   hangFrame01,
   loadDunkBvhText,
+  plantFrame01,
+  takeoffFrame01,
   type BvhTakeMeta,
 } from './bvhRetarget';
 
@@ -249,17 +245,6 @@ export async function createMixamoAthlete(
     root.computeWorldMatrix(true);
   };
 
-  const writeTrack = (track: SlamTrack, t01: number) => {
-    const frame = slamTrackFrame(track, t01);
-    for (const [boneName, keys] of Object.entries(track.bones)) {
-      const bone = bones.get(boneName);
-      const sampled = sampleTrackQuat(keys, frame);
-      if (!bone || !sampled) continue;
-      writeLocal(bone, new Quaternion(sampled[0], sampled[1], sampled[2], sampled[3]));
-    }
-    flushPose();
-  };
-
   const applyEuler = (boneName: string, x: number, y: number, z: number) => {
     const bone = bones.get(boneName);
     const bind = rest.get(boneName);
@@ -288,29 +273,31 @@ export async function createMixamoAthlete(
     return Vector3.TransformCoordinates(Vector3.Zero(), bone.getAbsoluteTransform());
   };
 
-  const posePlant = (intensity: number) => {
-    stopLocoClips();
-    stopSlamClips();
-    writeTrack(APPROACH_TRACKS.PLANT, intensity);
-  };
-
-  const poseTakeoff = (intensity: number) => {
-    stopLocoClips();
-    stopSlamClips();
-    writeTrack(APPROACH_TRACKS.TAKEOFF, intensity);
-  };
-
-  const driveSlamClip = (_style: HangStyle, t01: number) => {
+  const driveTakeFrame = (frame: number) => {
     stopLocoClips();
     const group = anims.dunkTake;
     if (!group) return;
-    const t = Math.max(0, Math.min(1, t01));
-    const frame = dunkTakeMeta ? hangFrame01(dunkTakeMeta, t) : t * group.to;
     group.start(false, 1, 0, group.to);
     group.goToFrame(frame);
     group.pause();
     applyGroupFrame(group, frame, bones);
     flushPose();
+  };
+
+  const posePlant = (intensity: number) => {
+    if (!dunkTakeMeta) return;
+    driveTakeFrame(plantFrame01(dunkTakeMeta, intensity));
+  };
+
+  const poseTakeoff = (intensity: number) => {
+    if (!dunkTakeMeta) return;
+    driveTakeFrame(takeoffFrame01(dunkTakeMeta, intensity));
+  };
+
+  const driveSlamClip = (_style: HangStyle, t01: number) => {
+    const t = Math.max(0, Math.min(1, t01));
+    const frame = dunkTakeMeta ? hangFrame01(dunkTakeMeta, t) : t * (anims.dunkTake?.to ?? 0);
+    driveTakeFrame(frame);
   };
 
   const seekSlam = (style: HangStyle, t01: number) => {

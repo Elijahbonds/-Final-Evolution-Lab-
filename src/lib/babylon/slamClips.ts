@@ -22,8 +22,6 @@ export const HANG_STYLES: HangStyle[] = ['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHA
 
 export const SLAM_TRACKS = tracks as Record<HangStyle, SlamTrack>;
 
-export const APPROACH_TRACKS = tracks as Record<'PLANT' | 'TAKEOFF', SlamTrack>;
-
 export function slamTrackSweeps(style: HangStyle): boolean {
   const keys = SLAM_TRACKS[style]?.bones.LeftArm ?? [];
   if (keys.length < 3) return false;

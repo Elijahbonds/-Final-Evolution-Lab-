@@ -113,6 +113,38 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
       actual: `contactT=${athlete.hangContactT01.toFixed(3)} rimFootY=${rimFoot.y.toFixed(3)} landFootY=${landFoot.y.toFixed(3)} dFoot=${dist(rimFoot, landFoot).toFixed(3)} dHand=${dist(rimHand, landHand).toFixed(3)}`,
       expected: 'hangContactT01 < 1; rim foot still up, not the t=1 land squash',
     });
+
+    athlete.posePlant(0);
+    const plant0 = { l: athlete.boneWorld('LeftHand'), f: athlete.boneWorld('LeftFoot') };
+    athlete.posePlant(1);
+    const plant1 = { l: athlete.boneWorld('LeftHand'), f: athlete.boneWorld('LeftFoot') };
+    athlete.poseTakeoff(0);
+    const take0 = { l: athlete.boneWorld('LeftHand'), f: athlete.boneWorld('LeftFoot') };
+    athlete.poseTakeoff(1);
+    const take1 = { l: athlete.boneWorld('LeftHand'), f: athlete.boneWorld('LeftFoot') };
+    athlete.seekSlam('REVERSE_TWO_HAND', 0);
+    const hangApex = { l: athlete.boneWorld('LeftHand'), f: athlete.boneWorld('LeftFoot') };
+    const plantMoves = dist(plant0.l, plant1.l) + dist(plant0.f, plant1.f) > 0.08;
+    const takeoffRises = dist(take0.l, take1.l) + dist(take0.f, take1.f) > 0.12;
+    const takeoffMeetsHang = dist(take1.l, hangApex.l) + dist(take1.f, hangApex.f) < 0.08;
+    const plantNotHang = dist(plant1.l, hangApex.l) + dist(plant1.f, hangApex.f) > 0.15;
+    const plantLeavesT = dist(plant1.l, tposeL) > 0.08;
+    const liveFromBake = src.includes('APPROACH_TRACKS') || src.includes('writeTrack') || src.includes('slamClipTracks');
+    const samplesWindows = src.includes('plantFrame01') && src.includes('takeoffFrame01');
+    results.push({
+      name: 'Plant and takeoff sample Elijah dunkTake windows, not slamClipTracks',
+      passed:
+        plantMoves &&
+        takeoffRises &&
+        takeoffMeetsHang &&
+        plantNotHang &&
+        plantLeavesT &&
+        !liveFromBake &&
+        samplesWindows &&
+        (athlete.dunkTakeMeta?.takeoffEnd ?? -1) === (athlete.dunkTakeMeta?.hangStart ?? -2),
+      actual: `dPlant=${(dist(plant0.l, plant1.l) + dist(plant0.f, plant1.f)).toFixed(3)} dTake=${(dist(take0.l, take1.l) + dist(take0.f, take1.f)).toFixed(3)} takeToHang=${(dist(take1.l, hangApex.l) + dist(take1.f, hangApex.f)).toFixed(3)} plantToHang=${(dist(plant1.l, hangApex.l) + dist(plant1.f, hangApex.f)).toFixed(3)} bake=${liveFromBake} windows=${athlete.dunkTakeMeta?.plantStart}-${athlete.dunkTakeMeta?.plantEnd}/${athlete.dunkTakeMeta?.takeoffStart}-${athlete.dunkTakeMeta?.takeoffEnd}`,
+      expected: 'same imported take; plant on floor; takeoff t=1 is hang apex; not APPROACH_TRACKS',
+    });
   }
 
   athlete.dispose();

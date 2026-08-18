@@ -23,6 +23,8 @@ import {
   parseBvh,
   hangFrame01,
   hangContactT01,
+  plantFrame01,
+  takeoffFrame01,
   mapBvhJointToMixamo,
   ELIJAH_DUNK_BVH,
   ELIJAH_DUNK_CLIP,
@@ -471,6 +473,64 @@ export function runVeniceDunkLoopTests(): TestResult[] {
         ? `contactT=${contactT.toFixed(3)} frame=${contactFrame.toFixed(1)} y=${yContact.toFixed(1)} t1=${landFrame} y1=${yLand.toFixed(1)} forceT1=${forcesT1} usesContactT=${usesContactT} hang=${parsed.meta.hangStart}-${parsed.meta.hangEnd}`
         : `missing public/assets/${ELIJAH_DUNK_BVH}`,
       expected: 'hangContact t<1, Hips Y still aerial, hangEnd Y≈68 squash; mode does not force t=1',
+    });
+  }
+
+  {
+    let bvhText = '';
+    let athleteSrc = '';
+    try {
+      bvhText = readFileSync(new URL(`../public/assets/${ELIJAH_DUNK_BVH}`, import.meta.url), 'utf8');
+      athleteSrc = readFileSync(new URL('../src/lib/babylon/MixamoAthlete.ts', import.meta.url), 'utf8');
+    } catch {
+      bvhText = '';
+    }
+    const parsed = bvhText ? parseBvh(bvhText) : null;
+    const hips = parsed?.joints.find((j) => mapBvhJointToMixamo(j.name) === 'Hips');
+    const yi = hips?.channels.indexOf('Yposition') ?? -1;
+    const yAt = (frame: number) => {
+      if (!parsed || !hips || yi < 0) return Number.NaN;
+      return parsed.frames[Math.round(frame)]?.[hips.channelOffset + yi] ?? Number.NaN;
+    };
+    const plant0 = parsed ? plantFrame01(parsed.meta, 0) : -1;
+    const plant1 = parsed ? plantFrame01(parsed.meta, 1) : -1;
+    const take0 = parsed ? takeoffFrame01(parsed.meta, 0) : -1;
+    const take1 = parsed ? takeoffFrame01(parsed.meta, 1) : -1;
+    const yPlant = yAt(plant1);
+    const yTake0 = yAt(take0);
+    const yTake1 = yAt(take1);
+    const liveFromBake =
+      athleteSrc.includes('APPROACH_TRACKS') ||
+      athleteSrc.includes('slamClipTracks') ||
+      athleteSrc.includes('writeTrack');
+    const samplesTake =
+      athleteSrc.includes('plantFrame01') &&
+      athleteSrc.includes('takeoffFrame01') &&
+      athleteSrc.includes('dunkTake');
+    const passed =
+      !!parsed &&
+      parsed.meta.plantEnd < parsed.meta.hangStart &&
+      parsed.meta.plantStart < parsed.meta.plantEnd &&
+      parsed.meta.plantStart > 100 &&
+      parsed.meta.takeoffStart === parsed.meta.plantEnd &&
+      parsed.meta.takeoffEnd === parsed.meta.hangStart &&
+      plant0 === parsed.meta.plantStart &&
+      plant1 === parsed.meta.plantEnd &&
+      take0 === parsed.meta.takeoffStart &&
+      take1 === parsed.meta.takeoffEnd &&
+      yPlant < 120 &&
+      yTake0 < 120 &&
+      yTake1 > 200 &&
+      yTake1 > yTake0 + 80 &&
+      !liveFromBake &&
+      samplesTake;
+    results.push({
+      name: 'Plant and takeoff windows are on basketball_dunk__elijah.bvh before hangStart',
+      passed,
+      actual: parsed
+        ? `plant=${parsed.meta.plantStart}-${parsed.meta.plantEnd} y1=${yPlant.toFixed(1)} takeoff=${parsed.meta.takeoffStart}-${parsed.meta.takeoffEnd} y0=${yTake0.toFixed(1)} y1=${yTake1.toFixed(1)} hang=${parsed.meta.hangStart} bake=${liveFromBake} sample=${samplesTake}`
+        : `missing public/assets/${ELIJAH_DUNK_BVH}`,
+      expected: 'same 2029-frame take; plant on the floor; takeoff rises into hangStart 222; not slamClipTracks',
     });
   }
 
