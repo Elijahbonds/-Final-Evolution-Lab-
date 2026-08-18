@@ -140,8 +140,10 @@ export async function runMeshyVeniceCourtTests(): Promise<
   const scalesToNativeRatio = Math.abs(bigFinalWidth - 40) < 0.01 && Math.abs(bigScale - 40 / 15.2) < 0.01;
   bigPiece.dispose();
 
-  // Camera: idle/runway/gather/plant/takeoff/default pull back proportionally
-  // to worldScale; HANG and CONTACT stay exactly as locked regardless of it.
+  // Camera: every phase's DISTANCE pulls back proportionally to worldScale
+  // so it clears a bigger rim/backboard/post assembly. HANG/CONTACT are
+  // byte-identical to the original locked framing at worldScale === 1 (no
+  // mural), and their TARGET never moves — only how far back they sit does.
   const rim = new Vector3(0, 3.05, 5.5);
   const athletePos = new Vector3(0, 0, -2);
   const idleNoScale = directedFraming('IDLE', athletePos, rim, undefined, undefined, 1);
@@ -152,10 +154,19 @@ export async function runMeshyVeniceCourtTests(): Promise<
   const hangBigScale = directedFraming('HANG', athletePos, rim, undefined, undefined, 2.6);
   const contactNoScale = directedFraming('CONTACT', athletePos, rim, undefined, undefined, 1);
   const contactBigScale = directedFraming('CONTACT', athletePos, rim, undefined, undefined, 2.6);
-  const hangContactLocked =
-    Vector3.Distance(hangNoScale.pos, hangBigScale.pos) < 1e-9 &&
+  const hangDefaultMatchesLocked =
+    hangNoScale.pos.x === 2.55 &&
+    hangNoScale.pos.z === athletePos.z - 1.28 &&
+    contactNoScale.pos.x === 1.15 &&
+    contactNoScale.pos.z === rim.z - 1.55;
+  const hangContactTracksScale =
+    hangDefaultMatchesLocked &&
+    // Distance backs off with worldScale so the camera clears a bigger hoop.
+    Vector3.Distance(hangBigScale.pos, athletePos) > Vector3.Distance(hangNoScale.pos, athletePos) &&
+    Vector3.Distance(contactBigScale.pos, rim) > Vector3.Distance(contactNoScale.pos, rim) &&
+    // Target stays pinned to the real, unscaled rim/athlete — the fall and
+    // the CONTACT frame it looks at never move regardless of mural size.
     Vector3.Distance(hangNoScale.target, hangBigScale.target) < 1e-9 &&
-    Vector3.Distance(contactNoScale.pos, contactBigScale.pos) < 1e-9 &&
     Vector3.Distance(contactNoScale.target, contactBigScale.target) < 1e-9;
 
   const modeSrc = (() => {
@@ -232,10 +243,10 @@ export async function runMeshyVeniceCourtTests(): Promise<
       expected: 'a 40-unit plane stays 40 wide; returned ratio === 40/15.2, not clamped down',
     },
     {
-      name: 'Idle/runway camera pulls back proportionally to worldScale; HANG/CONTACT ignore it (locked)',
-      passed: idlePullsBack && hangContactLocked,
-      actual: `idleNoScaleDist=${Vector3.Distance(idleNoScale.pos, athletePos).toFixed(2)} idleBigScaleDist=${Vector3.Distance(idleBigScale.pos, athletePos).toFixed(2)} hangContactLocked=${hangContactLocked}`,
-      expected: 'idle offset grows with worldScale; hang/contact framing identical at scale=1 and scale=2.6',
+      name: 'Idle camera pulls back with worldScale; hang cam tracks a scaled rim/athlete (target pinned, distance backs off)',
+      passed: idlePullsBack && hangContactTracksScale,
+      actual: `idleNoScaleDist=${Vector3.Distance(idleNoScale.pos, athletePos).toFixed(2)} idleBigScaleDist=${Vector3.Distance(idleBigScale.pos, athletePos).toFixed(2)} hangDefaultLocked=${hangDefaultMatchesLocked} hangDist0=${Vector3.Distance(hangNoScale.pos, athletePos).toFixed(2)} hangDist2.6=${Vector3.Distance(hangBigScale.pos, athletePos).toFixed(2)} contactDist0=${Vector3.Distance(contactNoScale.pos, rim).toFixed(2)} contactDist2.6=${Vector3.Distance(contactBigScale.pos, rim).toFixed(2)}`,
+      expected: 'at scale=1 hang/contact match the original locked numbers exactly; at scale=2.6 camera distance grows but target stays pinned to the real rim/athlete',
     },
     {
       name: 'Hoop fits the mural: rim/backboard/post scale to worldScale and backboard/post reposition off the hoop',

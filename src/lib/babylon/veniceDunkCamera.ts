@@ -3,11 +3,19 @@
  * Hang height is locked to the rim so a ½gt² fall reads as a fall, not a hover.
  *
  * `worldScale` (default 1) is authored against the Meshy mural's own
- * bounds, not the cheap procedural slab: idle/runway/gather/plant/default
- * pos AND target pull back and rise together, proportionally, so a bigger
- * mural reads as a real outdoor Venice court establishing shot — not a
- * tabletop demo with a cramped toy hoop. HANG and CONTACT ignore it
- * entirely — that framing is locked to the rim regardless of mural size.
+ * bounds, not the cheap procedural slab: every phase's camera DISTANCE
+ * (the offset from athlete/rim, not the target it looks at) pulls back
+ * proportionally, so a bigger mural — and the bigger rim/backboard/post
+ * dressing that comes with it — reads as a real outdoor Venice court, not
+ * a tabletop demo with a cramped toy hoop or a camera clipping through an
+ * oversized backboard.
+ *
+ * HANG and CONTACT scale the same way: the camera backs off enough to
+ * clear a scaled-up hoop assembly, but the TARGET stays pinned to the
+ * real, unscaled rim/athlete world position — the hang/plant/CONTACT
+ * frame windows and the ½gt² fall itself are untouched either way. At
+ * worldScale === 1 (no mural loaded) every phase is byte-identical to the
+ * original locked framing.
  */
 
 import { Vector3 } from '@babylonjs/core';
@@ -46,12 +54,12 @@ export function directedFraming(
     return { pos, target };
   }
   if (phase === 'HANG') {
-    pos.set(2.55, rim.y - 0.08, athlete.z - 1.28);
+    pos.set(2.55 * s, rim.y - 0.08, athlete.z - 1.28 * s);
     target.set(0.08, rim.y - 0.04, rim.z - 0.12);
     return { pos, target };
   }
   if (phase === 'CONTACT') {
-    pos.set(1.15, rim.y + 0.15, rim.z - 1.55);
+    pos.set(1.15 * s, rim.y + 0.15, rim.z - 1.55 * s);
     target.set(0, rim.y, rim.z);
     return { pos, target };
   }
