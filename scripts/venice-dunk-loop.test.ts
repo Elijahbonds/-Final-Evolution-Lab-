@@ -531,24 +531,29 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       c.makeHeadline === "That's the Bonds Bounce." &&
       c.makeSub === 'The card is the proof. You ran Eastbay.' &&
       c.missHeadline === 'Missed the plant, not the rim.' &&
-      c.missSub === 'Gather was late. The block foot paid for it.' &&
+      c.missSubMushy === 'Gather was late. The block foot paid for it.' &&
+      c.missSubAir === "Never got there. That's air." &&
+      c.missSubRimOut === 'Caught iron. Off the window.' &&
       c.nextAttempt === 'NEXT ATTEMPT. Same plant.' &&
       c.instantRetry === 'INSTANT RETRY. Same plant.' &&
       c.eastbayLine === '164 ms / 4.8x / 38.5 in / 3°' &&
       c.eastbayClass === 'NOT CLINICAL' &&
       !c.makeHeadline.includes('SLAMMED') &&
+      !c.missHeadline.includes('SLAMMED') &&
       !c.missHeadline.includes('Who Scene') &&
-      caseMissSub('LATE') === c.missSub &&
-      caseMissSub('AIR') === '' &&
-      caseMissSub('RIM_OUT') === '' &&
-      caseMissSub('MUSHY_PLANT') === '' &&
+      caseMissSub('MUSHY_PLANT') === c.missSubMushy &&
+      caseMissSub('AIR') === c.missSubAir &&
+      caseMissSub('RIM_OUT') === c.missSubRimOut &&
+      caseMissSub('LATE') === '' &&
       caseMissSub('EARLY') === '' &&
-      caseMissSub('SHORT') === '';
+      caseMissSub('SHORT') === '' &&
+      caseMissSub('AIR') !== c.missSubMushy &&
+      caseMissSub('RIM_OUT') !== c.missSubMushy;
     results.push({
       name: 'CASE card copy is locked (Bonds Bounce / plant miss, no SLAMMED)',
       passed,
-      actual: `${c.makeHeadline} | ${c.missHeadline} | lateSub=${caseMissSub('LATE')} airSub="${caseMissSub('AIR')}" rimSub="${caseMissSub('RIM_OUT')}"`,
-      expected: "That's the Bonds Bounce. / Missed the plant, not the rim. Gather-late sub only on LATE.",
+      actual: `${c.makeHeadline} | ${c.missHeadline} | mushy=${caseMissSub('MUSHY_PLANT')} air=${caseMissSub('AIR')} rim=${caseMissSub('RIM_OUT')} late="${caseMissSub('LATE')}"`,
+      expected: "Missed the plant, not the rim. Gather-late ONLY on MUSHY_PLANT. AIR/RIM_OUT locked.",
     });
   }
 
