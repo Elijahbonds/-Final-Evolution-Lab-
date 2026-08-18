@@ -35,6 +35,13 @@ import {
   takeoffFrame01,
   type BvhTakeMeta,
 } from './bvhRetarget';
+import {
+  fetchLocalBytes,
+  LOCAL_ASSET_TIMEOUT_MS,
+  LOCAL_DUNKER_GLB,
+  localAssetUrl,
+  withTimeout,
+} from './localAssets';
 
 export interface MixamoAthlete {
   root: TransformNode;
@@ -84,10 +91,15 @@ export async function loadMixamoContainer(
 ): Promise<AssetContainer> {
   const existing = containers.get(scene);
   if (existing) return existing;
-  const loaded =
+  const file =
     rootUrl instanceof File
-      ? await SceneLoader.LoadAssetContainerAsync('', rootUrl, scene)
-      : await SceneLoader.LoadAssetContainerAsync(rootUrl, 'dunker-transformed.glb', scene);
+      ? rootUrl
+      : new File([await fetchLocalBytes(localAssetUrl(LOCAL_DUNKER_GLB))], LOCAL_DUNKER_GLB);
+  const loaded = await withTimeout(
+    SceneLoader.LoadAssetContainerAsync('', file, scene),
+    LOCAL_ASSET_TIMEOUT_MS,
+    'dunker GLB'
+  );
   containers.set(scene, loaded);
   return loaded;
 }

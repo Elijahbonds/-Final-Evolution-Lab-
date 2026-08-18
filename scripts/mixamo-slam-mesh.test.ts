@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
 import { createMixamoAthlete } from '../src/lib/babylon/MixamoAthlete';
 import { ELIJAH_DUNK_BVH, ELIJAH_DUNK_CLIP, isElijahDunkTake } from '../src/lib/babylon/bvhRetarget';
+import { isRemoteAssetUrl, LOCAL_DUNKER_GLB } from '../src/lib/babylon/localAssets';
 
 if (typeof globalThis.FileReader === 'undefined') {
   class NodeFileReader {
@@ -47,6 +48,7 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
   const groupName = athlete.anims.dunkTake?.name ?? '';
   const src = readFileSync(new URL('../src/lib/babylon/MixamoAthlete.ts', import.meta.url), 'utf8');
   const loader = readFileSync(new URL('../src/lib/babylon/bvhRetarget.ts', import.meta.url), 'utf8');
+  const modeSrc = readFileSync(new URL('../src/components/modes/BabylonDunkMode.tsx', import.meta.url), 'utf8');
   const hangFromBvh =
     src.includes('bvhRetarget') &&
     src.includes('dunkTake') &&
@@ -61,6 +63,23 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
       passed: hangFromBvh,
       actual: `bvh=${src.includes('bvhRetarget')} dunkTake=${src.includes('dunkTake')} clipKeys=${src.includes('SLAM_CLIP_KEYS')} elijahUrl=${loader.includes(ELIJAH_DUNK_BVH)} cmuFallback=${loader.includes('/assets/cmu_124_06')}`,
       expected: 'MixamoAthlete hang loads /assets/basketball_dunk__elijah.bvh only',
+    },
+    {
+      name: 'Dunker GLB is a timed local /assets fetch, not SceneLoader URL or Mixamo CDN',
+      passed:
+        src.includes('fetchLocalBytes') &&
+        src.includes('LOCAL_DUNKER_GLB') &&
+        src.includes('withTimeout') &&
+        !src.includes("LoadAssetContainerAsync(rootUrl, 'dunker-transformed.glb'") &&
+        !src.includes('mixamo.com') &&
+        loader.includes('fetchLocalText') &&
+        loader.includes('isRemoteAssetUrl') &&
+        modeSrc.includes('spectators: false') &&
+        modeSrc.includes('withTimeout') &&
+        isRemoteAssetUrl('https://www.mixamo.com/foo') &&
+        !isRemoteAssetUrl(`/assets/${LOCAL_DUNKER_GLB}`),
+      actual: `localFetch=${src.includes('fetchLocalBytes')} timeout=${src.includes('withTimeout')} sceneUrl=${src.includes("LoadAssetContainerAsync(rootUrl, 'dunker-transformed.glb'")} remoteMixamo=${isRemoteAssetUrl('https://www.mixamo.com/foo')} specsOff=${modeSrc.includes('spectators: false')}`,
+      expected: 'fetch local dunker-transformed.glb + BVH with timeout; no Mixamo CDN; dunk court skips crowd skins',
     },
     {
       name: 'Hang body is basketball_dunk__elijah.bvh — CMU 124_06 is not BODY YES',

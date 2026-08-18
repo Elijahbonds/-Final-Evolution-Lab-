@@ -13,6 +13,7 @@ import {
   TransformNode,
 } from '@babylonjs/core';
 import { sanitizeBoneName } from '../rigSanitizer';
+import { fetchLocalText, isRemoteAssetUrl, localAssetUrl, LOCAL_ELIJAH_BVH } from './localAssets';
 
 export const ELIJAH_DUNK_BVH = 'basketball_dunk__elijah.bvh';
 export const ELIJAH_DUNK_CLIP = 'basketball_dunk__elijah';
@@ -411,14 +412,13 @@ export async function loadDunkBvhText(options?: {
     const text = await options.file.text();
     return isElijahDunkTake(text) ? text : '';
   }
-  const urls = [options?.url, `/assets/${ELIJAH_DUNK_BVH}`].filter((u): u is string => !!u);
+  const urls = [options?.url, localAssetUrl(LOCAL_ELIJAH_BVH)].filter((u): u is string => {
+    return !!u && !isRemoteAssetUrl(u);
+  });
   for (const url of urls) {
     try {
-      const res = await fetch(url);
-      if (res.ok) {
-        const text = await res.text();
-        if (isElijahDunkTake(text)) return text;
-      }
+      const text = await fetchLocalText(url);
+      if (isElijahDunkTake(text)) return text;
     } catch {
       /* try next */
     }

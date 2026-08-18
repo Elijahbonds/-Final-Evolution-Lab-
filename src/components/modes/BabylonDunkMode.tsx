@@ -13,6 +13,7 @@ import {
   DunkPhase,
 } from '../../core/VeniceDunkLoop';
 import { VENICE_RESULT_COPY, caseMissHeadline, caseMissSub } from '../../core/veniceResultCopy';
+import { LOCAL_ASSET_TIMEOUT_MS, withTimeout } from '../../lib/babylon/localAssets';
 import { SoundJuice } from '../../lib/judgeScoring';
 
 interface BabylonDunkModeProps {
@@ -71,20 +72,29 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
     const boot = async () => {
       try {
-        const court = await buildVeniceNightCourt(scene, shadowGenerator, hoop);
-        if (disposed) return;
-        courtRef.current = court;
+        await withTimeout(
+          (async () => {
+            const court = await buildVeniceNightCourt(scene, shadowGenerator, hoop, {
+              spectators: false,
+            });
+            if (disposed) return;
+            courtRef.current = court;
 
-        const athlete = await createMixamoAthlete(scene, 'veniceDunker', shadowGenerator, {
-          tint: new Color3(0.05, 0.55, 0.7),
-        });
-        if (disposed) return;
-        athlete.root.position.set(0, 0, -6.2);
-        athlete.root.rotation.y = 0;
-        athleteRef.current = athlete;
-        athlete.playIdle();
-        setReady(true);
+            const athlete = await createMixamoAthlete(scene, 'veniceDunker', shadowGenerator, {
+              tint: new Color3(0.05, 0.55, 0.7),
+            });
+            if (disposed) return;
+            athlete.root.position.set(0, 0, -6.2);
+            athlete.root.rotation.y = 0;
+            athleteRef.current = athlete;
+            athlete.playIdle();
+            setReady(true);
+          })(),
+          LOCAL_ASSET_TIMEOUT_MS + 4000,
+          'Mixamo dunker'
+        );
       } catch (err) {
+        if (disposed) return;
         setLoadError(err instanceof Error ? err.message : 'Mixamo dunker failed to load');
       }
     };

@@ -309,6 +309,7 @@ export async function buildVeniceNightCourt(
       try {
         const spectator = await createMixamoAthlete(scene, `crowd_${i}`, shadowGen, {
           seated: true,
+          dunkBvh: '',
           tint: new Color3(0.15 + (i % 3) * 0.08, 0.12, 0.18 + (i % 2) * 0.1),
         });
         spectator.root.position.set(seats[i].x, seats[i].y, seats[i].z);
