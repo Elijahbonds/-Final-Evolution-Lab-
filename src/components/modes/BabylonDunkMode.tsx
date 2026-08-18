@@ -3,13 +3,13 @@ import { ArrowLeft, Volume2, VolumeX } from 'lucide-react';
 import { Vector3, FreeCamera, Color3, TransformNode } from '@babylonjs/core';
 import { createBabylonContext } from '../../lib/babylon/BabylonSceneBuilder';
 import { abortMixamoLoad, createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
-import { buildVeniceNightCourt, VeniceNightCourt } from '../../lib/babylon/VeniceNightCourt';
 import {
-  hideCheapCourtMeshes,
-  hideCheapSurroundMeshes,
+  buildVeniceNightCourt,
+  hideCheapVenicePrimitives,
   loadMeshyVeniceCourt,
   MeshyVeniceCourt,
-} from '../../lib/babylon/MeshyVeniceCourt';
+  VeniceNightCourt,
+} from '../../lib/babylon/VeniceNightCourt';
 import { directedFraming } from '../../lib/babylon/veniceDunkCamera';
 import {
   VeniceDunkAttempt,
@@ -130,8 +130,10 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           } else {
             meshyCourtRef.current = meshy;
             worldScaleRef.current = meshy.worldScale;
-            if (meshy.courtLoaded) hideCheapCourtMeshes(scene);
-            if (meshy.surroundLoaded) hideCheapSurroundMeshes(scene);
+            hideCheapVenicePrimitives(scene, {
+              court: meshy.courtLoaded,
+              surround: meshy.surroundLoaded,
+            });
             // The mural reads bigger than regulation — grow the hoop
             // dressing to match so it does not look tiny next to it.
             // Position stays gameplay-driven; only visual size changes.

@@ -26,13 +26,12 @@ import { buildVeniceNightCourt } from '../src/lib/babylon/VeniceNightCourt';
 import { directedFraming } from '../src/lib/babylon/veniceDunkCamera';
 import {
   fitMeshyPieceToFootprint,
-  hideCheapCourtMeshes,
-  hideCheapSurroundMeshes,
+  hideCheapVenicePrimitives,
   loadMeshyVeniceCourt,
   MeshyPiece,
   MESHY_COURT_GLB,
   MESHY_SURROUND_GLB,
-} from '../src/lib/babylon/MeshyVeniceCourt';
+} from '../src/lib/babylon/VeniceNightCourt';
 
 export async function runMeshyVeniceCourtTests(): Promise<
   Array<{ name: string; passed: boolean; actual: string; expected: string }>
@@ -78,16 +77,17 @@ export async function runMeshyVeniceCourtTests(): Promise<
     surroundWidth > 60 + 1 &&
     meshy.worldScale > 1.5;
 
-  hideCheapCourtMeshes(scene);
-  hideCheapSurroundMeshes(scene);
+  hideCheapVenicePrimitives(scene, { court: meshy.courtLoaded, surround: meshy.surroundLoaded });
 
   const cheapCourtGone =
     scene.getMeshByName('venice_court')?.isEnabled() === false &&
+    scene.getMeshByName('venice_court')?.isVisible === false &&
     scene.getMeshByName('venice_key')?.isEnabled() === false &&
     scene.getMeshByName('venice_sand')?.isEnabled() === false;
   const cheapSurroundGone =
     scene.getMeshByName('venice_sky')?.isEnabled() === false &&
     scene.getMeshByName('venice_ocean')?.isEnabled() === false &&
+    scene.getMeshByName('venice_ocean')?.isVisible === false &&
     scene.getMeshByName('fence_l')?.isEnabled() === false &&
     scene.getMeshByName('bleacher_row_0')?.isEnabled() === false;
   const rimStaysUp =
@@ -152,7 +152,7 @@ export async function runMeshyVeniceCourtTests(): Promise<
   })();
   const meshySrc = (() => {
     try {
-      return readFileSync(new URL('../src/lib/babylon/MeshyVeniceCourt.ts', import.meta.url), 'utf8');
+      return readFileSync(new URL('../src/lib/babylon/VeniceNightCourt.ts', import.meta.url), 'utf8');
     } catch {
       return '';
     }
@@ -174,10 +174,16 @@ export async function runMeshyVeniceCourtTests(): Promise<
     killHungLoadBlock.includes('abortMixamoLoad') &&
     killHungLoadBlock.includes('athleteRef');
 
+  // VeniceNightCourt.ts legitimately imports MixamoAthlete for crowd
+  // spectators — the real isolation check is that the Meshy loader itself
+  // never touches the athlete's abort/container tracking (abortMixamoLoad).
+  const meshyLoaderIsInVeniceNightCourt =
+    meshySrc.includes('export async function loadMeshyVeniceCourt') &&
+    meshySrc.includes('export function fitMeshyPieceToFootprint') &&
+    meshySrc.includes('export function hideCheapVenicePrimitives');
   const meshyLoadIndependentOfAthleteAbort =
     meshySrc.includes('never shares state with the athlete') &&
-    !meshySrc.includes('abortMixamoLoad') &&
-    !meshySrc.includes("from './MixamoAthlete'");
+    !meshySrc.includes('abortMixamoLoad');
 
   const worldScaleWiring =
     modeSrc.includes('worldScaleRef.current = meshy.worldScale') &&
@@ -234,8 +240,14 @@ export async function runMeshyVeniceCourtTests(): Promise<
     {
       name: 'Hang-required + abort stay on the athlete only — killHungLoad never touches Meshy state',
       passed: hangRequiredIsAthleteOnly && meshyLoadIndependentOfAthleteAbort,
-      actual: `killHungLoadTouchesMeshy=${killHungLoadBlock.includes('meshyCourtRef')} meshyImportsMixamo=${meshySrc.includes("from './MixamoAthlete'")}`,
-      expected: 'killHungLoad only disposes athleteRef/abortMixamoLoad; MeshyVeniceCourt.ts never imports MixamoAthlete abort state',
+      actual: `killHungLoadTouchesMeshy=${killHungLoadBlock.includes('meshyCourtRef')} meshyUsesAbortMixamoLoad=${meshySrc.includes('abortMixamoLoad')}`,
+      expected: 'killHungLoad only disposes athleteRef/abortMixamoLoad; the Meshy loader never calls abortMixamoLoad',
+    },
+    {
+      name: 'Meshy File loader lives in VeniceNightCourt.ts, not a separate module',
+      passed: meshyLoaderIsInVeniceNightCourt,
+      actual: `wired=${meshyLoaderIsInVeniceNightCourt}`,
+      expected: 'loadMeshyVeniceCourt / fitMeshyPieceToFootprint / hideCheapVenicePrimitives are all exported from VeniceNightCourt.ts',
     },
   ];
 

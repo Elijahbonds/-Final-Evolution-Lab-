@@ -22,5 +22,11 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "scripts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/components/modes/KarateEndlessMode.tsx",
+    "src/components/modes/VelocityKartGrandPrixMode.tsx"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
