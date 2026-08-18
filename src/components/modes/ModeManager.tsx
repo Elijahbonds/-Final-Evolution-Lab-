@@ -116,12 +116,12 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'babylon
                     SLAM DUNK CONTEST
                   </h3>
                   <p className="text-xs font-mono text-zinc-300 mt-1.5 leading-relaxed">
-                    Venice Beach night court. Hold to charge vertical leap, execute windmill/360 slams, and receive Eastbay Master Standard scoring.
+                    Venice Beach night court. Run the gather, release in the green window, and finish with a reverse two-hand slam. Eastbay Master Standard is the case comparison.
                   </p>
                 </div>
 
                 <div className="flex items-center justify-between pt-4 border-t border-white/10 mt-4">
-                  <span className="text-[10px] font-mono text-[#00F2FF] font-bold">REGULATION 3.05M • ORBIT CAM</span>
+                  <span className="text-[10px] font-mono text-[#00F2FF] font-bold">REGULATION 3.05M • DUNK CAM</span>
                   <span className="text-xs font-mono font-bold text-black bg-[#00F2FF] px-3 py-1 rounded-xl flex items-center gap-1 group-hover:scale-105 transition-transform shadow-[0_0_15px_rgba(0,242,255,0.4)]">
                     PLAY 3D <Play className="w-3.5 h-3.5 fill-black" />
                   </span>
