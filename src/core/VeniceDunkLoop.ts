@@ -56,17 +56,14 @@ export const PHASE_SECONDS = {
   LAND: 0.34,
 } as const;
 
-/** Hang fall after apex. 10–22cm / 0.5s (~1.3 m/s²) reads as a hover. */
-export const HANG_FALL_G = 6.8;
+/** Apex hold as a fraction of hang, then ballistic fall. */
+export const HANG_HOLD_P = 0.26;
+export const HANG_FALL_G = 8.2;
 
-/**
- * Ballistic drop from this apex over hang time. Never lifts. Keeps hang-end
- * above the court so a short plant does not bury the mesh.
- */
 export function hangDropFromApex(apexY: number, compression01 = 0.7): number {
+  const fallT = PHASE_SECONDS.HANG * (1 - HANG_HOLD_P);
   const desired =
-    0.5 * HANG_FALL_G * PHASE_SECONDS.HANG * PHASE_SECONDS.HANG +
-    (1 - clamp01(compression01)) * 0.08;
+    0.5 * HANG_FALL_G * fallT * fallT + (1 - clamp01(compression01)) * 0.08;
   const ceiling = Math.max(0.28, apexY - 0.12);
   return Math.min(desired, ceiling);
 }
@@ -104,12 +101,20 @@ export function takeoffWorldY(p: number, plantY: number, apexY: number): number 
 
 /**
  * Hang y at p in [0,1].
- * p=0 MUST equal takeoffApexY. After apex, y only falls (ballistic). hangDropM is fall, not lift.
+ * p=0 equals takeoff apex. First HANG_HOLD_P stays at apex (the hang),
+ * then y falls ballistically. Never rises.
  */
-export function hangWorldY(p: number, takeoffApexY: number, hangDropM: number): number {
+export function hangWorldY(
+  p: number,
+  takeoffApexY: number,
+  hangDropM: number,
+  holdP: number = HANG_HOLD_P
+): number {
   const t = clamp01(p);
-  const drop = Math.max(0, hangDropM) * t * t;
-  return takeoffApexY - drop;
+  const hold = clamp01(holdP);
+  if (t <= hold) return takeoffApexY;
+  const f = (t - hold) / Math.max(1e-6, 1 - hold);
+  return takeoffApexY - Math.max(0, hangDropM) * f * f;
 }
 
 export function landWorldY(p: number, hangEndY: number, groundY: number): number {

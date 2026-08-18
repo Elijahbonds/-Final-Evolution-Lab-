@@ -16,12 +16,12 @@ import {
   Mesh,
   MeshBuilder,
   Quaternion,
+  Vector3,
   Color3,
   StandardMaterial,
   TransformNode,
   Space,
   ShadowGenerator,
-  Axis,
 } from '@babylonjs/core';
 import { sanitizeBoneName } from '../rigSanitizer';
 import { HangStyle, SLAM_SPINS, SlamMap } from './slamSilhouettes';
@@ -49,6 +49,7 @@ export interface MixamoAthlete {
   poseTomahawk: (intensity: number) => void;
   poseThreeSixty: (intensity: number) => void;
   poseHangStyle: (style: HangStyle, intensity: number) => void;
+  boneWorld: (name: string) => Vector3;
   poseSit: () => void;
   poseReact: (kind: CrowdReact, intensity?: number) => void;
   resetPose: () => void;
@@ -60,14 +61,16 @@ export type { HangStyle } from './slamSilhouettes';
 
 const containers = new WeakMap<Scene, AssetContainer>();
 
-export async function loadMixamoContainer(scene: Scene): Promise<AssetContainer> {
+export async function loadMixamoContainer(
+  scene: Scene,
+  rootUrl: string | File = '/assets/'
+): Promise<AssetContainer> {
   const existing = containers.get(scene);
   if (existing) return existing;
-  const loaded = await SceneLoader.LoadAssetContainerAsync(
-    '/assets/',
-    'dunker-transformed.glb',
-    scene
-  );
+  const loaded =
+    rootUrl instanceof File
+      ? await SceneLoader.LoadAssetContainerAsync('', rootUrl, scene)
+      : await SceneLoader.LoadAssetContainerAsync(rootUrl, 'dunker-transformed.glb', scene);
   containers.set(scene, loaded);
   return loaded;
 }
@@ -76,9 +79,9 @@ export async function createMixamoAthlete(
   scene: Scene,
   name: string,
   shadowGen?: ShadowGenerator,
-  options?: { seated?: boolean; tint?: Color3 }
+  options?: { seated?: boolean; tint?: Color3; rootUrl?: string; file?: File }
 ): Promise<MixamoAthlete> {
-  const container = await loadMixamoContainer(scene);
+  const container = await loadMixamoContainer(scene, options?.file ?? options?.rootUrl ?? '/assets/');
   const instance = container.instantiateModelsToScene((n) => `${name}_${n}`, false, {
     doNotInstantiate: true,
   });
@@ -201,30 +204,31 @@ export async function createMixamoAthlete(
     basketball.position.set(0.04, 0.08, 0.02);
   };
 
-  /**
-   * Drive the skinned mesh from T-pose bind with world-space spins.
-   * Local Euler-on-bind was a spine twist on a T-pose — the mesh never slammed.
-   */
-  const applyWorldSlam = (map: SlamMap, intensity: number) => {
+  const applyLocalSlam = (map: SlamMap, intensity: number) => {
     stopClips();
     resetPose();
     const i = Math.max(0, Math.min(1, intensity));
     for (const [name, spin] of Object.entries(map)) {
-      const bone = bones.get(name);
-      const bind = rest.get(name);
-      if (!bone || !bind) continue;
-      writeLocal(bone, bind.clone());
-      if (spin.x) bone.rotate(Axis.X, spin.x * i, Space.WORLD);
-      if (spin.y) bone.rotate(Axis.Y, spin.y * i, Space.WORLD);
-      if (spin.z) bone.rotate(Axis.Z, spin.z * i, Space.WORLD);
-      const q = bone.getRotationQuaternion(Space.LOCAL);
-      if (q) writeLocal(bone, q);
+      applyEuler(name, spin.x * i, spin.y * i, spin.z * i);
     }
     skeleton?.computeAbsoluteTransforms();
+    root.computeWorldMatrix(true);
+  };
+
+  const boneWorld = (name: string): Vector3 => {
+    const bone = bones.get(name);
+    if (!bone) return new Vector3(Number.NaN, Number.NaN, Number.NaN);
+    skeleton?.computeAbsoluteTransforms();
+    const node = bone.getTransformNode();
+    if (node) {
+      node.computeWorldMatrix(true);
+      return node.getAbsolutePosition().clone();
+    }
+    return Vector3.TransformCoordinates(Vector3.Zero(), bone.getAbsoluteTransform());
   };
 
   const posePlant = (intensity: number) => {
-    applyWorldSlam(
+    applyLocalSlam(
       {
         Spine: { x: 0.32, y: 0, z: 0 },
         Spine1: { x: 0.2, y: 0, z: 0 },
@@ -232,48 +236,50 @@ export async function createMixamoAthlete(
         RightUpLeg: { x: 1.05, y: -0.06, z: 0 },
         LeftLeg: { x: 1.15, y: 0, z: 0 },
         RightLeg: { x: 1.22, y: 0, z: 0 },
-        LeftArm: { x: 0.25, y: 0.15, z: 0.45 },
-        RightArm: { x: 0.28, y: -0.15, z: -0.5 },
+        LeftArm: { x: 0, y: 0, z: -0.45 },
+        RightArm: { x: 0, y: 0, z: -0.45 },
       },
       intensity
     );
   };
 
   const poseTakeoff = (intensity: number) => {
-    applyWorldSlam(
+    applyLocalSlam(
       {
-        Spine: { x: -0.14, y: 0, z: 0 },
+        Spine: { x: -0.12, y: 0, z: 0 },
         LeftUpLeg: { x: -0.12, y: 0, z: 0 },
         RightUpLeg: { x: 0.72, y: 0, z: 0 },
         LeftLeg: { x: 0.22, y: 0, z: 0 },
         RightLeg: { x: 0.85, y: 0, z: 0 },
-        LeftArm: { x: 0.15, y: 0.12, z: 1.15 },
-        RightArm: { x: 0.18, y: -0.12, z: -1.22 },
-        LeftForeArm: { x: -0.28, y: 0, z: 0 },
-        RightForeArm: { x: -0.32, y: 0, z: 0 },
+        LeftShoulder: { x: 0, y: 0, z: -0.35 },
+        RightShoulder: { x: 0, y: 0, z: -0.35 },
+        LeftArm: { x: 0, y: 0, z: -0.85 },
+        RightArm: { x: 0, y: 0, z: -0.85 },
+        LeftForeArm: { x: -0.22, y: 0, z: 0 },
+        RightForeArm: { x: -0.22, y: 0, z: 0 },
       },
       intensity
     );
   };
 
   const poseReverseTwoHand = (intensity: number) => {
-    applyWorldSlam(SLAM_SPINS.REVERSE_TWO_HAND, intensity);
+    applyLocalSlam(SLAM_SPINS.REVERSE_TWO_HAND, intensity);
   };
 
   const poseTomahawk = (intensity: number) => {
-    applyWorldSlam(SLAM_SPINS.TOMAHAWK, intensity);
+    applyLocalSlam(SLAM_SPINS.TOMAHAWK, intensity);
   };
 
   const poseWindmill = (intensity: number) => {
-    applyWorldSlam(SLAM_SPINS.WINDMILL, intensity);
+    applyLocalSlam(SLAM_SPINS.WINDMILL, intensity);
   };
 
   const poseThreeSixty = (intensity: number) => {
-    applyWorldSlam(SLAM_SPINS['360_SPIN'], intensity);
+    applyLocalSlam(SLAM_SPINS['360_SPIN'], intensity);
   };
 
   const poseHangStyle = (style: HangStyle, intensity: number) => {
-    applyWorldSlam(SLAM_SPINS[style], intensity);
+    applyLocalSlam(SLAM_SPINS[style], intensity);
   };
 
   const poseSit = () => {
@@ -350,6 +356,7 @@ export async function createMixamoAthlete(
     poseTomahawk,
     poseThreeSixty,
     poseHangStyle,
+    boneWorld,
     poseSit,
     poseReact,
     resetPose,

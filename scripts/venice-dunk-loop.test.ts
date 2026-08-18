@@ -7,7 +7,7 @@ import {
   EASTBAY_MASTER_STANDARD,
   hangWorldY,
   hangDropFromApex,
-  HANG_FALL_G,
+  HANG_HOLD_P,
   takeoffWorldY,
   rimDeflectionY,
   metricsFromPlant,
@@ -398,20 +398,24 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     const drop = hangDropFromApex(1.06, 0.81);
     const hover = 0.10 + (1 - 0.81) * 0.12;
     const y0 = hangWorldY(0, 1.06, drop);
+    const yHold = hangWorldY(HANG_HOLD_P * 0.8, 1.06, drop);
     const y1 = hangWorldY(1, 1.06, drop);
-    const accel = (2 * drop) / (0.5 * 0.5);
+    const fallT = 0.5 * (1 - HANG_HOLD_P);
+    const accel = (2 * drop) / (fallT * fallT);
     const passed =
-      drop >= 0.55 &&
+      drop >= 0.50 &&
       drop > hover + 0.25 &&
       Math.abs(y0 - 1.06) < 1e-9 &&
+      Math.abs(yHold - 1.06) < 1e-9 &&
       y1 < y0 - 0.4 &&
-      accel >= 4.5 &&
-      HANG_FALL_G >= 6;
+      accel >= 6 &&
+      HANG_HOLD_P > 0.15 &&
+      HANG_HOLD_P < 0.4;
     results.push({
-      name: 'Hang drop is a real fall from apex, not a 10-22cm hover',
+      name: 'Hang holds apex then falls; not a 10-22cm hover',
       passed,
-      actual: `drop=${drop.toFixed(3)} hoverWas=${hover.toFixed(3)} y0=${y0.toFixed(3)} y1=${y1.toFixed(3)} a=${accel.toFixed(2)}`,
-      expected: 'drop >= 0.55m from apex, hang(0)===apex, accel >= 4.5',
+      actual: `drop=${drop.toFixed(3)} hoverWas=${hover.toFixed(3)} y0=${y0.toFixed(3)} yHold=${yHold.toFixed(3)} y1=${y1.toFixed(3)} a=${accel.toFixed(2)} holdP=${HANG_HOLD_P}`,
+      expected: 'hold at apex, then drop >= 0.50m, fall accel >= 6',
     });
   }
 
@@ -467,6 +471,15 @@ if (nodeProcess?.argv?.[1]?.includes('venice-dunk-loop')) {
   const testResults = runVeniceDunkLoopTests();
   let allPass = true;
   for (const t of testResults) {
+    console.log(`${t.passed ? '✓ PASS' : '✗ FAIL'} | ${t.name}`);
+    console.log(`  Actual: ${t.actual}`);
+    console.log(`  Expected: ${t.expected}\n`);
+    if (!t.passed) allPass = false;
+  }
+  const { runMixamoSlamMeshTests } = await import('./mixamo-slam-mesh.test.ts');
+  console.log('=== MIXAMO SLAM MESH ===\n');
+  const meshResults = await runMixamoSlamMeshTests();
+  for (const t of meshResults) {
     console.log(`${t.passed ? '✓ PASS' : '✗ FAIL'} | ${t.name}`);
     console.log(`  Actual: ${t.actual}`);
     console.log(`  Expected: ${t.expected}\n`);
