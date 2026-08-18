@@ -205,6 +205,16 @@ export async function createMixamoAthlete(
     }
   };
 
+  const slamQuat = (bind: Quaternion, spin?: BoneSpin): Quaternion => {
+    if (!spin) return bind.clone();
+    return bind.multiply(Quaternion.FromEulerAngles(spin.x, spin.y, spin.z));
+  };
+
+  const flushPose = () => {
+    skeleton?.computeAbsoluteTransforms();
+    root.computeWorldMatrix(true);
+  };
+
   const applyEuler = (boneName: string, x: number, y: number, z: number) => {
     const bone = bones.get(boneName);
     const bind = rest.get(boneName);
@@ -221,15 +231,20 @@ export async function createMixamoAthlete(
     basketball.position.set(0.04, 0.08, 0.02);
   };
 
-  const applyLocalSlam = (map: SlamMap, intensity: number) => {
-    stopClips();
-    resetPose();
+  const applyPoseMap = (map: SlamMap, intensity: number) => {
+    stopLocoClips();
+    stopSlamClips();
     const i = Math.max(0, Math.min(1, intensity));
-    for (const [name, spin] of Object.entries(map)) {
-      applyEuler(name, spin.x * i, spin.y * i, spin.z * i);
+    for (const [name, bind] of rest) {
+      const bone = bones.get(name);
+      if (!bone) continue;
+      const spin = map[name];
+      writeLocal(
+        bone,
+        spin ? slamQuat(bind, { x: spin.x * i, y: spin.y * i, z: spin.z * i }) : bind.clone()
+      );
     }
-    skeleton?.computeAbsoluteTransforms();
-    root.computeWorldMatrix(true);
+    flushPose();
   };
 
   const boneWorld = (name: string): Vector3 => {
@@ -245,7 +260,7 @@ export async function createMixamoAthlete(
   };
 
   const posePlant = (intensity: number) => {
-    applyLocalSlam(
+    applyPoseMap(
       {
         Spine: { x: 0.32, y: 0, z: 0 },
         Spine1: { x: 0.2, y: 0, z: 0 },
@@ -261,7 +276,7 @@ export async function createMixamoAthlete(
   };
 
   const poseTakeoff = (intensity: number) => {
-    applyLocalSlam(
+    applyPoseMap(
       {
         Spine: { x: -0.12, y: 0, z: 0 },
         LeftUpLeg: { x: -0.12, y: 0, z: 0 },
@@ -277,11 +292,6 @@ export async function createMixamoAthlete(
       },
       intensity
     );
-  };
-
-  const slamQuat = (bind: Quaternion, spin?: BoneSpin): Quaternion => {
-    if (!spin) return bind.clone();
-    return bind.multiply(Quaternion.FromEulerAngles(spin.x, spin.y, spin.z));
   };
 
   const buildSlamClip = (style: HangStyle): AnimationGroup => {
@@ -331,11 +341,6 @@ export async function createMixamoAthlete(
   (['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHAWK', '360_SPIN'] as HangStyle[]).forEach((style) => {
     anims.slam[style] = buildSlamClip(style);
   });
-
-  const flushPose = () => {
-    skeleton?.computeAbsoluteTransforms();
-    root.computeWorldMatrix(true);
-  };
 
   const quatAtFrame = (anim: Animation, frame: number): Quaternion | null => {
     const keys = anim.getKeys();

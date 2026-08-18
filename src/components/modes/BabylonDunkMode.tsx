@@ -4,6 +4,7 @@ import { Vector3, FreeCamera, Color3 } from '@babylonjs/core';
 import { createBabylonContext } from '../../lib/babylon/BabylonSceneBuilder';
 import { createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
 import { buildVeniceNightCourt, VeniceNightCourt } from '../../lib/babylon/VeniceNightCourt';
+import { directedFraming } from '../../lib/babylon/veniceDunkCamera';
 import {
   VeniceDunkAttempt,
   EASTBAY_MASTER_STANDARD,
@@ -19,53 +20,6 @@ interface BabylonDunkModeProps {
 }
 
 type IdleFrame = 'BOARDWALK' | 'COURTSIDE' | 'RIM';
-
-function directedFraming(
-  phase: DunkPhase,
-  athlete: Vector3,
-  rim: Vector3
-): { pos: Vector3; target: Vector3 } {
-  if (phase === 'IDLE' || phase === 'RUNWAY') {
-    return {
-      pos: new Vector3(athlete.x + 2.6, 1.65, athlete.z - 3.6),
-      target: new Vector3(athlete.x, 1.25, athlete.z + 3.2),
-    };
-  }
-  if (phase === 'GATHER' || phase === 'BLOWN') {
-    return {
-      pos: new Vector3(athlete.x + 2.15, 1.5, athlete.z - 2.2),
-      target: new Vector3(athlete.x, 1.4, athlete.z + 2.4),
-    };
-  }
-  if (phase === 'PLANT') {
-    return {
-      pos: new Vector3(1.8, 1.35, athlete.z - 1.4),
-      target: new Vector3(0, 1.55, athlete.z + 1.6),
-    };
-  }
-  if (phase === 'TAKEOFF') {
-    return {
-      pos: new Vector3(2.0, athlete.y + 1.1, athlete.z - 1.8),
-      target: new Vector3(0, athlete.y + 1.4, athlete.z + 1.8),
-    };
-  }
-  if (phase === 'HANG') {
-    return {
-      pos: new Vector3(2.4, athlete.y + 0.35, athlete.z - 1.1),
-      target: new Vector3(0.1, Math.max(athlete.y, rim.y - 0.1), rim.z - 0.2),
-    };
-  }
-  if (phase === 'CONTACT') {
-    return {
-      pos: new Vector3(1.15, rim.y + 0.15, rim.z - 1.55),
-      target: new Vector3(0, rim.y, rim.z),
-    };
-  }
-  return {
-    pos: new Vector3(3.2, 1.8, rim.z - 4.5),
-    target: new Vector3(0, 1.2, rim.z - 0.6),
-  };
-}
 
 export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);

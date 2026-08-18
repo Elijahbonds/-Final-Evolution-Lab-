@@ -158,7 +158,8 @@ function makeChainLinkTexture(scene: Scene): DynamicTexture {
 export async function buildVeniceNightCourt(
   scene: Scene,
   shadowGen: ShadowGenerator | undefined,
-  hoopPosition: Vector3
+  hoopPosition: Vector3,
+  options?: { spectators?: boolean }
 ): Promise<VeniceNightCourt> {
   registerVeniceShaders();
   scene.clearColor = new Color4(0.03, 0.05, 0.09, 1.0);
@@ -303,18 +304,20 @@ export async function buildVeniceNightCourt(
     { x: -1.1, z: -16.5, y: 1.25 },
   ];
 
-  for (let i = 0; i < seats.length; i++) {
-    try {
-      const spectator = await createMixamoAthlete(scene, `crowd_${i}`, shadowGen, {
-        seated: true,
-        tint: new Color3(0.15 + (i % 3) * 0.08, 0.12, 0.18 + (i % 2) * 0.1),
-      });
-      spectator.root.position.set(seats[i].x, seats[i].y, seats[i].z);
-      spectator.root.rotation.y = Math.PI;
-      spectator.poseSit();
-      crowd.push(spectator);
-    } catch {
-      // Crowd is best-effort if the Mixamo container cannot instance again.
+  if (options?.spectators !== false) {
+    for (let i = 0; i < seats.length; i++) {
+      try {
+        const spectator = await createMixamoAthlete(scene, `crowd_${i}`, shadowGen, {
+          seated: true,
+          tint: new Color3(0.15 + (i % 3) * 0.08, 0.12, 0.18 + (i % 2) * 0.1),
+        });
+        spectator.root.position.set(seats[i].x, seats[i].y, seats[i].z);
+        spectator.root.rotation.y = Math.PI;
+        spectator.poseSit();
+        crowd.push(spectator);
+      } catch {
+        // Crowd is best-effort if the Mixamo container cannot instance again.
+      }
     }
   }
 

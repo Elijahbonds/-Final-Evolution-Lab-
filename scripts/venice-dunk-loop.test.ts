@@ -567,6 +567,15 @@ if (nodeProcess?.argv?.[1]?.includes('venice-dunk-loop')) {
     console.log(`  Expected: ${t.expected}\n`);
     if (!t.passed) allPass = false;
   }
+  const { runVenicePlaceTests } = await import('./venice-place.test.ts');
+  console.log('=== VENICE PLACE / CAM ===\n');
+  const placeResults = await runVenicePlaceTests();
+  for (const t of placeResults) {
+    console.log(`${t.passed ? '✓ PASS' : '✗ FAIL'} | ${t.name}`);
+    console.log(`  Actual: ${t.actual}`);
+    console.log(`  Expected: ${t.expected}\n`);
+    if (!t.passed) allPass = false;
+  }
   const { runMixamoSlamMeshTests } = await import('./mixamo-slam-mesh.test.ts');
   console.log('=== MIXAMO SLAM MESH ===\n');
   const meshResults = await runMixamoSlamMeshTests();
