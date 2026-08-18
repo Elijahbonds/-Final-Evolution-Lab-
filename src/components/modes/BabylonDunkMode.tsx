@@ -149,7 +149,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         athlete.root.rotation.x *= 1 - p;
       }
       if (snap.phase === 'HANG' || snap.phase === 'CONTACT') {
-        athlete.playSlam(snap.style, snap.phase === 'CONTACT' ? 1 : Math.min(1, attempt.hangElapsed / 0.4));
+        const hangT = Math.min(athlete.hangContactT01, attempt.hangElapsed / 0.4);
+        athlete.playSlam(snap.style, snap.phase === 'CONTACT' ? athlete.hangContactT01 : hangT);
         athlete.root.rotation.y = Math.PI;
       }
       if (snap.phase === 'LAND' || snap.phase === 'BLOWN') {

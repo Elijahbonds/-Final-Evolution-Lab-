@@ -24,6 +24,8 @@ export interface BvhTakeMeta {
   restRelative: boolean;
   hangStart: number;
   hangEnd: number;
+  /** Rim pose in the hang window. Not hangEnd — hangEnd can be the land squash. */
+  hangContact: number;
   frameCount: number;
   frameTime: number;
 }
@@ -72,7 +74,7 @@ export function mapBvhJointToMixamo(raw: string): string {
   return clean;
 }
 
-function readMeta(text: string): Omit<BvhTakeMeta, 'frameCount' | 'frameTime'> {
+function readMeta(text: string): Omit<BvhTakeMeta, 'frameCount' | 'frameTime' | 'hangContact'> {
   let clipName = ELIJAH_DUNK_CLIP;
   let source = ELIJAH_DUNK_BVH;
   let restRelative = false;
@@ -137,11 +139,13 @@ export function parseBvh(text: string): ParsedBvh {
   const inferred = inferHangWindow(joints, frames);
   const hangStart = metaHead.hangEnd >= 0 ? metaHead.hangStart : inferred.hangStart;
   const hangEnd = metaHead.hangEnd >= 0 ? metaHead.hangEnd : inferred.hangEnd;
+  const hangContact = Math.max(hangStart, Math.min(hangEnd, inferred.hangContact));
   return {
     meta: {
       ...metaHead,
       hangStart,
       hangEnd,
+      hangContact,
       frameCount: frames.length || frameCount,
       frameTime,
     },
@@ -154,12 +158,12 @@ export function parseBvh(text: string): ParsedBvh {
 export function inferHangWindow(
   joints: BvhJoint[],
   frames: number[][]
-): { hangStart: number; hangEnd: number } {
+): { hangStart: number; hangEnd: number; hangContact: number } {
   const last = Math.max(0, frames.length - 1);
   const hips = joints.find((j) => mapBvhJointToMixamo(j.name) === 'Hips');
   const yi = hips?.channels.indexOf('Yposition') ?? -1;
   if (!hips || yi < 0 || frames.length < 8) {
-    return { hangStart: 0, hangEnd: last };
+    return { hangStart: 0, hangEnd: last, hangContact: last };
   }
   const ys = frames.map((f) => f[hips.channelOffset + yi] ?? 0);
   let peak = 0;
@@ -174,6 +178,7 @@ export function inferHangWindow(
   return {
     hangStart: peak,
     hangEnd: Math.min(last, end + 6),
+    hangContact: end,
   };
 }
 
@@ -277,6 +282,15 @@ export function hangFrame01(meta: BvhTakeMeta, t01: number): number {
   const end = Math.max(start, meta.hangEnd);
   const span = Math.max(1, end - start);
   return start + t * span;
+}
+
+/** CONTACT samples this t01 — the rim pose, not hangFrame01(..., 1) land squash. */
+export function hangContactT01(meta: BvhTakeMeta): number {
+  const start = Math.max(0, meta.hangStart);
+  const end = Math.max(start, meta.hangEnd);
+  const span = Math.max(1, end - start);
+  const contact = Math.max(start, Math.min(end, meta.hangContact));
+  return (contact - start) / span;
 }
 
 export function quatAtFrame(anim: Animation, frame: number): Quaternion | null {

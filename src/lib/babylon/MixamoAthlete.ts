@@ -34,6 +34,7 @@ import {
 import {
   applyGroupFrame,
   buildMixamoGroupFromBvh,
+  hangContactT01,
   hangFrame01,
   loadDunkBvhText,
   type BvhTakeMeta,
@@ -55,6 +56,7 @@ export interface MixamoAthlete {
   };
   dunkTakeName: string;
   dunkTakeMeta: BvhTakeMeta | null;
+  hangContactT01: number;
   basketball: Mesh;
   playRun: (rate?: number) => void;
   playIdle: () => void;
@@ -315,9 +317,11 @@ export async function createMixamoAthlete(
     driveSlamClip(style, t01);
   };
 
+  const contactT01 = dunkTakeMeta ? hangContactT01(dunkTakeMeta) : 1;
+
   const playSlam = (style: HangStyle, t01?: number) => {
     if (!anims.dunkTake) return;
-    driveSlamClip(style, t01 ?? 1);
+    driveSlamClip(style, t01 ?? contactT01);
   };
 
   const poseReverseTwoHand = (intensity: number) => {
@@ -406,6 +410,7 @@ export async function createMixamoAthlete(
     anims,
     dunkTakeName: dunkTakeMeta?.clipName ?? '',
     dunkTakeMeta,
+    hangContactT01: contactT01,
     basketball,
     playRun,
     playIdle,

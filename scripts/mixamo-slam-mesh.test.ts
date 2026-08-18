@@ -95,6 +95,24 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
       actual: `tposeL=${tposeL.y.toFixed(3)} hang0=${hang0.l.y.toFixed(3)} mid=${hangMid.l.y.toFixed(3)} end=${hangEnd.l.y.toFixed(3)}`,
       expected: 'hands leave T-pose as the Elijah hang window is sampled',
     });
+
+    athlete.seekSlam('REVERSE_TWO_HAND', 1);
+    const landFoot = athlete.boneWorld('LeftFoot');
+    const landHand = athlete.boneWorld('LeftHand');
+    athlete.seekSlam('REVERSE_TWO_HAND', athlete.hangContactT01);
+    const rimFoot = athlete.boneWorld('LeftFoot');
+    const rimHand = athlete.boneWorld('LeftHand');
+    const contactNotLand =
+      athlete.hangContactT01 < 1 - 1e-6 &&
+      dist(rimFoot, landFoot) > 0.25 &&
+      rimFoot.y > landFoot.y + 0.2 &&
+      dist(rimHand, landHand) > 0.08;
+    results.push({
+      name: 'CONTACT hang sample is the Elijah rim pose, not hang t=1 land squash',
+      passed: contactNotLand,
+      actual: `contactT=${athlete.hangContactT01.toFixed(3)} rimFootY=${rimFoot.y.toFixed(3)} landFootY=${landFoot.y.toFixed(3)} dFoot=${dist(rimFoot, landFoot).toFixed(3)} dHand=${dist(rimHand, landHand).toFixed(3)}`,
+      expected: 'hangContactT01 < 1; rim foot still up, not the t=1 land squash',
+    });
   }
 
   athlete.dispose();

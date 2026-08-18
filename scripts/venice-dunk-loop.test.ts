@@ -22,6 +22,8 @@ import { readFileSync } from 'node:fs';
 import {
   parseBvh,
   hangFrame01,
+  hangContactT01,
+  mapBvhJointToMixamo,
   ELIJAH_DUNK_BVH,
   ELIJAH_DUNK_CLIP,
   isElijahDunkTake,
@@ -423,6 +425,52 @@ export function runVeniceDunkLoopTests(): TestResult[] {
         ? `clip=${name} frames=${parsed.frames.length} hang=${parsed.meta.hangStart}-${parsed.meta.hangEnd} t0=${t0} t1=${t1}`
         : `missing public/assets/${ELIJAH_DUNK_BVH}; CMU lay-up is not the hang take`,
       expected: 'one Elijah take; hangFrame01(0..1) is apex→rim, not 0→2028',
+    });
+  }
+
+  {
+    let bvhText = '';
+    let modeSrc = '';
+    try {
+      bvhText = readFileSync(new URL(`../public/assets/${ELIJAH_DUNK_BVH}`, import.meta.url), 'utf8');
+      modeSrc = readFileSync(new URL('../src/components/modes/BabylonDunkMode.tsx', import.meta.url), 'utf8');
+    } catch {
+      bvhText = '';
+    }
+    const parsed = bvhText ? parseBvh(bvhText) : null;
+    const hips = parsed?.joints.find((j) => mapBvhJointToMixamo(j.name) === 'Hips');
+    const yi = hips?.channels.indexOf('Yposition') ?? -1;
+    const yAt = (frame: number) => {
+      if (!parsed || !hips || yi < 0) return Number.NaN;
+      return parsed.frames[Math.round(frame)]?.[hips.channelOffset + yi] ?? Number.NaN;
+    };
+    const contactT = parsed ? hangContactT01(parsed.meta) : 1;
+    const contactFrame = parsed ? hangFrame01(parsed.meta, contactT) : -1;
+    const landFrame = parsed ? hangFrame01(parsed.meta, 1) : -1;
+    const yContact = yAt(contactFrame);
+    const yLand = yAt(landFrame);
+    const forcesT1 =
+      modeSrc.includes("CONTACT' ? 1") ||
+      modeSrc.includes('CONTACT ? 1') ||
+      /phase === 'CONTACT' \? 1/.test(modeSrc);
+    const usesContactT = modeSrc.includes('hangContactT01');
+    const passed =
+      !!parsed &&
+      contactT < 1 - 1e-6 &&
+      contactFrame >= parsed.meta.hangStart &&
+      contactFrame < parsed.meta.hangEnd &&
+      Math.abs(contactFrame - parsed.meta.hangContact) < 1e-6 &&
+      yContact > 150 &&
+      yLand < 80 &&
+      !forcesT1 &&
+      usesContactT;
+    results.push({
+      name: 'CONTACT samples Elijah rim pose in the hang window, not t=1 land squash',
+      passed,
+      actual: parsed
+        ? `contactT=${contactT.toFixed(3)} frame=${contactFrame.toFixed(1)} y=${yContact.toFixed(1)} t1=${landFrame} y1=${yLand.toFixed(1)} forceT1=${forcesT1} usesContactT=${usesContactT} hang=${parsed.meta.hangStart}-${parsed.meta.hangEnd}`
+        : `missing public/assets/${ELIJAH_DUNK_BVH}`,
+      expected: 'hangContact t<1, Hips Y still aerial, hangEnd Y≈68 squash; mode does not force t=1',
     });
   }
 
