@@ -19,6 +19,7 @@ import {
   VeniceDunkAttempt,
 } from '../src/core/VeniceDunkLoop';
 import { slamArmSignature } from '../src/lib/babylon/slamSilhouettes';
+import { VENICE_RESULT_COPY } from '../src/core/veniceResultCopy';
 
 export interface TestResult {
   name: string;
@@ -510,6 +511,27 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       passed,
       actual: `reason=${early.outcome?.missReason} hangT=${early.hangElapsed.toFixed(3)} make=${early.outcome?.isMake}`,
       expected: 'RIM_OUT on first hang press while short of the rim',
+    });
+  }
+
+  {
+    const c = VENICE_RESULT_COPY;
+    const passed =
+      c.makeHeadline === "That's the Bonds Bounce." &&
+      c.makeSub === 'The card is the proof. You ran Eastbay.' &&
+      c.missHeadline === 'Missed the plant, not the rim.' &&
+      c.missSub === 'Gather was late. The block foot paid for it.' &&
+      c.nextAttempt === 'NEXT ATTEMPT. Same plant.' &&
+      c.instantRetry === 'INSTANT RETRY. Same plant.' &&
+      c.eastbayLine === '164 ms / 4.8x / 38.5 in / 3°' &&
+      c.eastbayClass === 'NOT CLINICAL' &&
+      !c.makeHeadline.includes('SLAMMED') &&
+      !c.missHeadline.includes('Who Scene');
+    results.push({
+      name: 'CASE card copy is locked (Bonds Bounce / plant miss, no SLAMMED)',
+      passed,
+      actual: `${c.makeHeadline} | ${c.missHeadline} | ${c.nextAttempt} | ${c.instantRetry}`,
+      expected: "That's the Bonds Bounce. / Missed the plant, not the rim. / NEXT ATTEMPT. Same plant. / INSTANT RETRY. Same plant.",
     });
   }
 

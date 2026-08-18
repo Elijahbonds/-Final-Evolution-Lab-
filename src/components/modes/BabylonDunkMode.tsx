@@ -11,6 +11,7 @@ import {
   ContactOutcome,
   DunkPhase,
 } from '../../core/VeniceDunkLoop';
+import { VENICE_RESULT_COPY } from '../../core/veniceResultCopy';
 import { SoundJuice } from '../../lib/judgeScoring';
 
 interface BabylonDunkModeProps {
@@ -310,6 +311,25 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
   const eastbay = EASTBAY_MASTER_STANDARD;
   const showCase = result !== null && metrics !== null;
+  const copy = VENICE_RESULT_COPY;
+
+  const clearCase = () => {
+    setResult(null);
+    setMetrics(null);
+    setCue(null);
+  };
+
+  const nextAttempt = () => {
+    clearCase();
+    attemptRef.current.reset();
+  };
+
+  const instantRetry = () => {
+    clearCase();
+    attemptRef.current.reset();
+    playSfx(() => SoundJuice.playCharge());
+    attemptRef.current.startRunway();
+  };
 
   return (
     <div className="unreal-canvas relative w-full h-[720px] rounded-3xl overflow-hidden flex flex-col justify-between shadow-2xl">
@@ -383,40 +403,56 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       )}
 
       {showCase && (
-        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-20 w-[min(92%,36rem)] pointer-events-none">
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 w-[min(92%,36rem)]">
           <div className="px-4 py-3 rounded-2xl bg-black/70 border border-[#00F2FF]/30 backdrop-blur-md">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <span className={`text-sm font-orbitron font-black uppercase ${result?.isMake ? 'text-[#00FF9D]' : 'text-red-400'}`}>
-                {result?.isMake ? 'DUNK' : result?.missReason?.replace('_', ' ')}
-              </span>
-              <span className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest">
-                {eastbay.role.replace('_', ' ')} · {eastbay.classification}
-              </span>
+            <div className="mb-1">
+              <div className={`text-sm font-orbitron font-black ${result?.isMake ? 'text-[#00FF9D]' : 'text-red-400'}`}>
+                {result?.isMake ? copy.makeHeadline : copy.missHeadline}
+              </div>
+              <div className="text-[10px] font-mono text-zinc-300 mt-0.5">
+                {result?.isMake ? copy.makeSub : copy.missSub}
+              </div>
             </div>
-            <div className="grid grid-cols-4 gap-2 text-center">
+            <div className="text-[9px] font-mono text-zinc-400 mt-2">
+              {copy.eastbayName} · {copy.eastbayLine} · {copy.eastbayClass} · {copy.eastbayRole}
+            </div>
+            <div className="grid grid-cols-4 gap-2 text-center mt-2">
               <div>
                 <div className="text-[8px] font-mono text-zinc-500">GCT</div>
                 <div className="text-sm font-orbitron text-white">{metrics?.gctMs}<span className="text-[9px] text-zinc-500 ml-0.5">ms</span></div>
-                <div className="text-[8px] font-mono text-zinc-600">MS {eastbay.gctMs}</div>
+                <div className="text-[8px] font-mono text-zinc-600">{eastbay.gctMs} ms</div>
               </div>
               <div>
                 <div className="text-[8px] font-mono text-zinc-500">VERTICAL</div>
                 <div className="text-sm font-orbitron text-white">{metrics?.verticalIn}<span className="text-[9px] text-zinc-500 ml-0.5">in</span></div>
-                <div className="text-[8px] font-mono text-zinc-600">MS {eastbay.verticalIn}</div>
+                <div className="text-[8px] font-mono text-zinc-600">{eastbay.verticalIn} in</div>
               </div>
               <div>
                 <div className="text-[8px] font-mono text-zinc-500">RECOIL</div>
                 <div className="text-sm font-orbitron text-white">{metrics?.elasticRecoilBw}<span className="text-[9px] text-zinc-500 ml-0.5">x</span></div>
-                <div className="text-[8px] font-mono text-zinc-600">MS {eastbay.elasticRecoilBw}</div>
+                <div className="text-[8px] font-mono text-zinc-600">{eastbay.elasticRecoilBw}x</div>
               </div>
               <div>
                 <div className="text-[8px] font-mono text-zinc-500">TRUNK</div>
                 <div className="text-sm font-orbitron text-white">{metrics?.trunkLeanDeg}°</div>
-                <div className="text-[8px] font-mono text-zinc-600">MS {eastbay.trunkLeanDeg}°</div>
+                <div className="text-[8px] font-mono text-zinc-600">{eastbay.trunkLeanDeg}°</div>
               </div>
             </div>
-            <div className="text-[9px] font-mono text-zinc-500 text-center mt-2 uppercase tracking-wider">
-              This plant · Eastbay Master Standard is the case, not this attempt · run again
+            <div className="flex gap-2 mt-3">
+              <button
+                type="button"
+                onClick={nextAttempt}
+                className="flex-1 px-2 py-2 rounded-xl bg-white/10 border border-white/20 text-[10px] font-mono font-bold text-white hover:bg-white/20"
+              >
+                {copy.nextAttempt}
+              </button>
+              <button
+                type="button"
+                onClick={instantRetry}
+                className="flex-1 px-2 py-2 rounded-xl bg-[#00F2FF] text-black text-[10px] font-mono font-bold hover:bg-[#00F2FF]/90"
+              >
+                {copy.instantRetry}
+              </button>
             </div>
           </div>
         </div>
