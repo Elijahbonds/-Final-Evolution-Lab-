@@ -1729,6 +1729,36 @@ export class SoundJuice {
     });
   }
 
+  /**
+   * Crowd cheer stinger. Stubbed ahead of the Studio Kart/Karate merge so a
+   * leftover `SoundJuice.playCrowdCheer(...)` call resolves at compile time
+   * instead of failing tsc with a missing-member error. Reuses the shared
+   * reward chime — no new audio behavior invented.
+   */
+  static playCrowdCheer() {
+    this.playReward();
+  }
+
+  /**
+   * Gymnastics landing success cue. Stubbed ahead of the Studio Kart/Karate
+   * merge so a leftover `SoundJuice.playGymnasticSuccess(...)` call resolves
+   * at compile time instead of failing tsc with a missing-member error.
+   * Reuses the shared reward chime — no new audio behavior invented.
+   */
+  static playGymnasticSuccess() {
+    this.playReward();
+  }
+
+  /**
+   * Catch/thud impact cue. Stubbed ahead of the Studio Kart/Karate merge so
+   * a leftover `SoundJuice.playCatchThud(...)` call resolves at compile time
+   * instead of failing tsc with a missing-member error. Reuses the shared
+   * reward chime — no new audio behavior invented.
+   */
+  static playCatchThud() {
+    this.playReward();
+  }
+
   static playBuzzer() {
     const ctx = this.getContext();
     if (!ctx) return;
