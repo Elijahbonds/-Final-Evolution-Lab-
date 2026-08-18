@@ -5,8 +5,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
 import { createMixamoAthlete } from '../src/lib/babylon/MixamoAthlete';
-import { ELIJAH_DUNK_BVH, ELIJAH_DUNK_CLIP, isElijahDunkTake } from '../src/lib/babylon/bvhRetarget';
-import { isRemoteAssetUrl, LOCAL_DUNKER_GLB } from '../src/lib/babylon/localAssets';
+import { ELIJAH_DUNK_BVH, ELIJAH_DUNK_CLIP, isElijahDunkTake, loadDunkBvhText } from '../src/lib/babylon/bvhRetarget';
+import { isRemoteAssetUrl, LOCAL_DUNKER_GLB, withTimeout } from '../src/lib/babylon/localAssets';
 
 if (typeof globalThis.FileReader === 'undefined') {
   class NodeFileReader {
@@ -58,6 +58,38 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
     loader.includes('ELIJAH_DUNK_BVH') &&
     !loader.includes('/assets/cmu_124_06');
 
+  const abortHits: string[] = [];
+  const late = new Promise<{ dispose: () => void }>((resolve) => {
+    setTimeout(() => resolve({ dispose: () => abortHits.push('late') }), 40);
+  });
+  try {
+    await withTimeout(late, 8, 'dunker GLB', (value) => {
+      abortHits.push('abort');
+      value?.dispose();
+    });
+  } catch {
+    /* timeout is the success path */
+  }
+  await new Promise((resolve) => setTimeout(resolve, 60));
+
+  let bvhMiss = '';
+  try {
+    await loadDunkBvhText({ text: 'Idle clip only' });
+  } catch (err) {
+    bvhMiss = err instanceof Error ? err.message : String(err);
+  }
+
+  let glbOnly = '';
+  try {
+    await createMixamoAthlete(scene, 'glbOnly', undefined, {
+      file: new File([bytes], 'dunker-transformed.glb'),
+      dunkBvh: 'Idle clip only',
+    });
+    glbOnly = 'booted';
+  } catch (err) {
+    glbOnly = err instanceof Error ? err.message : String(err);
+  }
+
   const results = [
     {
       name: 'Hang plumbing is dunkTake from bvhRetarget, not SLAM_CLIP_KEYS',
@@ -84,10 +116,17 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
         loader.includes('keyStart') &&
         !loader.includes('parsed.frames.map((frame, fi)') &&
         builderSrc.includes('shadowsEnabled = false') &&
+        src.includes('abortMixamoLoad') &&
+        src.includes('OnPluginActivatedObservable') &&
+        src.includes('disposeLoadedContainer') &&
+        loader.includes('hang body required') &&
+        !loader.includes('try next') &&
+        modeSrc.includes('abortMixamoLoad') &&
+        modeSrc.includes('allowedToDraw') &&
         isRemoteAssetUrl('https://www.mixamo.com/foo') &&
         !isRemoteAssetUrl(`/assets/${LOCAL_DUNKER_GLB}`),
-      actual: `localFetch=${src.includes('fetchLocalBytes')} timeout=${src.includes('withTimeout')} sceneUrl=${src.includes("LoadAssetContainerAsync(rootUrl, 'dunker-transformed.glb'")} remoteMixamo=${isRemoteAssetUrl('https://www.mixamo.com/foo')} specsOff=${modeSrc.includes('spectators: false')}`,
-      expected: 'fetch local dunker-transformed.glb + BVH with timeout; no Mixamo CDN; dunk court skips crowd skins',
+      actual: `localFetch=${src.includes('fetchLocalBytes')} timeout=${src.includes('withTimeout')} abort=${src.includes('abortMixamoLoad')} hangThrow=${loader.includes('hang body required')} sceneUrl=${src.includes("LoadAssetContainerAsync(rootUrl, 'dunker-transformed.glb'")} remoteMixamo=${isRemoteAssetUrl('https://www.mixamo.com/foo')} specsOff=${modeSrc.includes('spectators: false')}`,
+      expected: 'abort SceneLoader on timeout; Elijah BVH miss throws; no Mixamo CDN; dunk court skips crowd skins',
     },
     {
       name: 'Hang body is basketball_dunk__elijah.bvh — CMU 124_06 is not BODY YES',
@@ -102,6 +141,21 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
         ? `clip=${clipName} group=${groupName} tracks=${athlete.anims.dunkTake?.targetedAnimations.length ?? 0}`
         : `missing public/assets/${ELIJAH_DUNK_BVH}; CMU lay-up is not the hang take`,
       expected: 'AnimationGroup basketball_dunk__elijah from FEL-unity',
+    },
+    {
+      name: 'withTimeout aborts and disposes a late SceneLoader result',
+      passed: abortHits.includes('abort') && abortHits.includes('late'),
+      actual: abortHits.join(','),
+      expected: 'onAbort fires now and again with the late container so parse cannot outlive the timeout',
+    },
+    {
+      name: 'Missing Elijah BVH cannot silently drop hang — GLB-only boot fails',
+      passed:
+        bvhMiss.includes('hang body required') &&
+        glbOnly.includes('hang body required') &&
+        glbOnly !== 'booted',
+      actual: `bvhMiss=${bvhMiss} glbOnly=${glbOnly}`,
+      expected: 'loadDunkBvhText and createMixamoAthlete throw when basketball_dunk__elijah.bvh is not the hang body',
     },
   ];
 

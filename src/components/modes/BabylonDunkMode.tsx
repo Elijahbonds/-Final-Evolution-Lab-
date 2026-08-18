@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ArrowLeft, Volume2, VolumeX } from 'lucide-react';
 import { Vector3, FreeCamera, Color3, TransformNode } from '@babylonjs/core';
 import { createBabylonContext } from '../../lib/babylon/BabylonSceneBuilder';
-import { createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
+import { abortMixamoLoad, createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
 import { buildVeniceNightCourt, VeniceNightCourt } from '../../lib/babylon/VeniceNightCourt';
 import { directedFraming } from '../../lib/babylon/veniceDunkCamera';
 import {
@@ -71,9 +71,23 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     dunkCamRef.current = dunkCam;
 
     let disposed = false;
+    let allowedToDraw = false;
+    let bootAborted = false;
     const hoop = hoopPosRef.current;
     const framePos = new Vector3();
     const frameTarget = new Vector3();
+
+    const killHungLoad = () => {
+      bootAborted = true;
+      allowedToDraw = false;
+      abortMixamoLoad(scene);
+      try {
+        athleteRef.current?.dispose();
+      } catch {
+        /* athlete may not exist yet */
+      }
+      athleteRef.current = null;
+    };
 
     const boot = async () => {
       try {
@@ -83,7 +97,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
               spectators: false,
               previewSafe: true,
             });
-            if (disposed || scene.isDisposed) {
+            if (disposed || bootAborted || scene.isDisposed) {
               return;
             }
             courtRef.current = court;
@@ -91,8 +105,18 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
             const athlete = await createMixamoAthlete(scene, 'veniceDunker', shadowGenerator, {
               tint: new Color3(0.05, 0.55, 0.7),
             });
-            if (disposed || scene.isDisposed) {
+            if (disposed || bootAborted || scene.isDisposed) {
               athlete.dispose();
+              abortMixamoLoad(scene);
+              return;
+            }
+            if (!athlete.anims.dunkTake) {
+              athlete.dispose();
+              throw new Error('Elijah dunk BVH missing — hang body required');
+            }
+            if (disposed || bootAborted || scene.isDisposed) {
+              athlete.dispose();
+              abortMixamoLoad(scene);
               return;
             }
             athlete.root.position.set(0, 0, -6.2);
@@ -104,12 +128,22 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
             } catch {
               /* older engines may not expose the cache wipe */
             }
+            if (disposed || bootAborted || scene.isDisposed) {
+              athlete.dispose();
+              athleteRef.current = null;
+              abortMixamoLoad(scene);
+              return;
+            }
+            allowedToDraw = true;
             setReady(true);
           })(),
           LOCAL_ASSET_TIMEOUT_MS + 4000,
-          'Mixamo dunker'
+          'Mixamo dunker',
+          killHungLoad
         );
       } catch (err) {
+        allowedToDraw = false;
+        killHungLoad();
         if (disposed) return;
         setLoadError(err instanceof Error ? err.message : 'Mixamo dunker failed to load');
         try {
@@ -223,7 +257,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     });
     engine.runRenderLoop(() => {
       try {
-        if (disposed || engine.isDisposed || scene.isDisposed) return;
+        if (disposed || engine.isDisposed || scene.isDisposed || !allowedToDraw) return;
         const now = performance.now();
         if (now - lastDraw < 1000 / 24) return;
         lastDraw = now;
@@ -244,6 +278,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
     return () => {
       disposed = true;
+      allowedToDraw = false;
+      abortMixamoLoad(scene);
       scene.onBeforeRenderObservable.remove(observer);
       athleteRef.current?.dispose();
       athleteRef.current = null;

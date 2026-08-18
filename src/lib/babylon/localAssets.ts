@@ -24,13 +24,50 @@ export function isRemoteAssetUrl(url: string): boolean {
   }
 }
 
-export async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+/**
+ * Timed race that can abort the loser. SceneLoader parse must not keep
+ * running after the overlay timeout — a late container is disposed.
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+  onAbort?: (lateResult?: T) => void
+): Promise<T> {
   let id: ReturnType<typeof setTimeout> | undefined;
+  let aborted = false;
+  const wrapped = promise.then(
+    (value) => {
+      if (aborted) {
+        try {
+          onAbort?.(value);
+        } catch {
+          /* late SceneLoader / BVH work must not reach the live scene */
+        }
+        throw new Error(`${label} timed out`);
+      }
+      return value;
+    },
+    (err: unknown) => {
+      if (aborted) {
+        throw new Error(`${label} timed out`);
+      }
+      throw err;
+    }
+  );
   try {
     return await Promise.race([
-      promise,
+      wrapped,
       new Promise<never>((_, reject) => {
-        id = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+        id = setTimeout(() => {
+          aborted = true;
+          try {
+            onAbort?.();
+          } catch {
+            /* plugin dispose is best-effort */
+          }
+          reject(new Error(`${label} timed out`));
+        }, ms);
       }),
     ]);
   } finally {

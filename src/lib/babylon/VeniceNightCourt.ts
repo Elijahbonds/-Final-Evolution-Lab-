@@ -26,8 +26,8 @@ export interface VeniceNightCourt {
   rim: Mesh;
   backboard: Mesh;
   hoopRestY: number;
-  waterMat: ShaderMaterial;
-  skyMat: ShaderMaterial;
+  waterMat: ShaderMaterial | StandardMaterial;
+  skyMat: ShaderMaterial | StandardMaterial;
   rimSpot: SpotLight;
   crowd: MixamoAthlete[];
   reactCrowd: (kind: CrowdReact, intensity?: number) => void;
@@ -160,20 +160,33 @@ export async function buildVeniceNightCourt(
   hoopPosition: Vector3,
   options?: { spectators?: boolean; previewSafe?: boolean }
 ): Promise<VeniceNightCourt> {
-  registerVeniceShaders();
   scene.clearColor = new Color4(0.03, 0.05, 0.09, 1.0);
   const previewSafe = !!options?.previewSafe;
+  if (!previewSafe) {
+    registerVeniceShaders();
+  }
 
   const sky = MeshBuilder.CreateSphere(
     'venice_sky',
     { diameter: 180, segments: previewSafe ? 10 : 24, sideOrientation: Mesh.BACKSIDE },
     scene
   );
-  const skyMat = new ShaderMaterial('veniceSkyMat', scene, 'veniceSky', {
-    attributes: ['position', 'normal'],
-    uniforms: ['worldViewProjection', 'world', 'time'],
-  });
-  sky.material = skyMat;
+  let skyMat: ShaderMaterial | StandardMaterial;
+  if (previewSafe) {
+    const cheapSky = new StandardMaterial('veniceSkyMat', scene);
+    cheapSky.diffuseColor = new Color3(0.04, 0.06, 0.12);
+    cheapSky.emissiveColor = new Color3(0.03, 0.04, 0.09);
+    cheapSky.disableLighting = true;
+    cheapSky.backFaceCulling = false;
+    sky.material = cheapSky;
+    skyMat = cheapSky;
+  } else {
+    skyMat = new ShaderMaterial('veniceSkyMat', scene, 'veniceSky', {
+      attributes: ['position', 'normal'],
+      uniforms: ['worldViewProjection', 'world', 'time'],
+    });
+    sky.material = skyMat;
+  }
   sky.infiniteDistance = !previewSafe;
   sky.applyFog = false;
   sky.isPickable = false;
@@ -184,11 +197,20 @@ export async function buildVeniceNightCourt(
     scene
   );
   water.position.set(0, -0.55, 48);
-  const waterMat = new ShaderMaterial('veniceWaterMat', scene, 'veniceWater', {
-    attributes: ['position', 'normal', 'uv'],
-    uniforms: ['worldViewProjection', 'world', 'time', 'cameraPosition'],
-  });
-  water.material = waterMat;
+  let waterMat: ShaderMaterial | StandardMaterial;
+  if (previewSafe) {
+    const cheapWater = new StandardMaterial('veniceWaterMat', scene);
+    cheapWater.diffuseColor = new Color3(0.03, 0.1, 0.14);
+    cheapWater.specularColor = new Color3(0.12, 0.12, 0.1);
+    water.material = cheapWater;
+    waterMat = cheapWater;
+  } else {
+    waterMat = new ShaderMaterial('veniceWaterMat', scene, 'veniceWater', {
+      attributes: ['position', 'normal', 'uv'],
+      uniforms: ['worldViewProjection', 'world', 'time', 'cameraPosition'],
+    });
+    water.material = waterMat;
+  }
   water.isPickable = false;
 
   const sand = MeshBuilder.CreateGround(
@@ -263,7 +285,8 @@ export async function buildVeniceNightCourt(
     scene
   );
   rimSpot.diffuse = new Color3(1.0, 0.86, 0.62);
-  rimSpot.intensity = previewSafe ? 1.6 : 2.4;
+  rimSpot.intensity = previewSafe ? 0 : 2.4;
+  rimSpot.setEnabled(!previewSafe);
 
   if (!previewSafe) {
     const rimPoint = new PointLight('veniceRimPoint', hoopPosition.add(new Vector3(0, 0.15, 0)), scene);
@@ -272,20 +295,22 @@ export async function buildVeniceNightCourt(
     rimPoint.range = 8;
   }
 
-  const fenceTex = makeChainLinkTexture(scene, previewSafe ? 64 : 256);
   const fenceMat = new StandardMaterial('veniceFenceMat', scene);
-  fenceMat.diffuseTexture = fenceTex;
-  fenceMat.opacityTexture = fenceTex;
-  fenceMat.useAlphaFromDiffuseTexture = true;
-  fenceMat.transparencyMode = StandardMaterial.MATERIAL_ALPHATEST;
-  fenceMat.alphaCutOff = 0.45;
   fenceMat.backFaceCulling = false;
   fenceMat.diffuseColor = new Color3(0.55, 0.56, 0.58);
   fenceMat.specularColor = new Color3(0.25, 0.25, 0.28);
-  fenceTex.wrapU = Texture.WRAP_ADDRESSMODE;
-  fenceTex.wrapV = Texture.WRAP_ADDRESSMODE;
-  fenceTex.uScale = 6;
-  fenceTex.vScale = 2;
+  if (!previewSafe) {
+    const fenceTex = makeChainLinkTexture(scene);
+    fenceMat.diffuseTexture = fenceTex;
+    fenceMat.opacityTexture = fenceTex;
+    fenceMat.useAlphaFromDiffuseTexture = true;
+    fenceMat.transparencyMode = StandardMaterial.MATERIAL_ALPHATEST;
+    fenceMat.alphaCutOff = 0.45;
+    fenceTex.wrapU = Texture.WRAP_ADDRESSMODE;
+    fenceTex.wrapV = Texture.WRAP_ADDRESSMODE;
+    fenceTex.uScale = 6;
+    fenceTex.vScale = 2;
+  }
 
   const placeFence = (id: string, w: number, h: number, pos: Vector3, rotY: number) => {
     const plane = MeshBuilder.CreatePlane(id, { width: w, height: h }, scene);
@@ -371,18 +396,17 @@ export async function buildVeniceNightCourt(
     }
   }
 
-  let lastTickBucket = -1;
   const tick = (timeSec: number) => {
-    if (previewSafe) {
-      const bucket = Math.floor(timeSec * 8);
-      if (bucket === lastTickBucket) return;
-      lastTickBucket = bucket;
+    if (previewSafe) return;
+    if (skyMat instanceof ShaderMaterial) {
+      skyMat.setFloat('time', timeSec);
     }
-    skyMat.setFloat('time', timeSec);
-    waterMat.setFloat('time', timeSec);
-    const cam = scene.activeCamera;
-    if (cam) {
-      waterMat.setVector3('cameraPosition', cam.position);
+    if (waterMat instanceof ShaderMaterial) {
+      waterMat.setFloat('time', timeSec);
+      const cam = scene.activeCamera;
+      if (cam) {
+        waterMat.setVector3('cameraPosition', cam.position);
+      }
     }
   };
 

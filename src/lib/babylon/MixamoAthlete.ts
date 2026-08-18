@@ -19,6 +19,7 @@ import {
   Vector3,
   Color3,
   StandardMaterial,
+  PBRMaterial,
   TransformNode,
   Space,
   ShadowGenerator,
@@ -84,6 +85,35 @@ export type CrowdReact = 'sit' | 'watch' | 'rise' | 'cheer' | 'miss';
 export type { HangStyle } from './slamClips';
 
 const containers = new WeakMap<Scene, AssetContainer>();
+const activePlugins = new WeakMap<Scene, { dispose?: () => void }>();
+
+function disposeLoaderPlugin(scene: Scene) {
+  const plugin = activePlugins.get(scene);
+  activePlugins.delete(scene);
+  try {
+    plugin?.dispose?.();
+  } catch {
+    /* plugin may already be torn down */
+  }
+}
+
+function disposeLoadedContainer(scene: Scene, container?: AssetContainer) {
+  disposeLoaderPlugin(scene);
+  const held = container ?? containers.get(scene);
+  if (held) {
+    try {
+      held.dispose();
+    } catch {
+      /* late container must not stay alive */
+    }
+  }
+  containers.delete(scene);
+}
+
+/** Abort an in-flight SceneLoader so a timed-out parse cannot take the iframe down later. */
+export function abortMixamoLoad(scene: Scene) {
+  disposeLoadedContainer(scene);
+}
 
 export async function loadMixamoContainer(
   scene: Scene,
@@ -91,17 +121,33 @@ export async function loadMixamoContainer(
 ): Promise<AssetContainer> {
   const existing = containers.get(scene);
   if (existing) return existing;
+  if (scene.isDisposed) {
+    throw new Error('Mixamo dunker scene disposed');
+  }
   const file =
     rootUrl instanceof File
       ? rootUrl
       : new File([await fetchLocalBytes(localAssetUrl(LOCAL_DUNKER_GLB))], LOCAL_DUNKER_GLB);
-  const loaded = await withTimeout(
-    SceneLoader.LoadAssetContainerAsync('', file, scene),
-    LOCAL_ASSET_TIMEOUT_MS,
-    'dunker GLB'
-  );
-  containers.set(scene, loaded);
-  return loaded;
+  const pluginObs = SceneLoader.OnPluginActivatedObservable.add((plugin) => {
+    activePlugins.set(scene, plugin as { dispose?: () => void });
+  });
+  const loadPromise = SceneLoader.LoadAssetContainerAsync('', file, scene);
+  try {
+    const loaded = await withTimeout(loadPromise, LOCAL_ASSET_TIMEOUT_MS, 'dunker GLB', (late) => {
+      disposeLoadedContainer(scene, late);
+    });
+    if (scene.isDisposed) {
+      disposeLoadedContainer(scene, loaded);
+      throw new Error('Mixamo dunker scene disposed');
+    }
+    containers.set(scene, loaded);
+    return loaded;
+  } catch (err) {
+    disposeLoadedContainer(scene);
+    throw err;
+  } finally {
+    SceneLoader.OnPluginActivatedObservable.remove(pluginObs);
+  }
 }
 
 export async function createMixamoAthlete(
@@ -140,8 +186,19 @@ export async function createMixamoAthlete(
     /* keep the instantiated skin if the source container is already empty */
   }
 
+  const dropInstance = () => {
+    try {
+      instance.animationGroups.forEach((g) => g.dispose());
+      instance.skeletons.forEach((s) => s.dispose());
+      instance.rootNodes.forEach((n) => n.dispose());
+    } catch {
+      /* best-effort so a hang-less GLB does not stay in the scene */
+    }
+  };
+
   const root = instance.rootNodes[0] as TransformNode;
   if (!root) {
+    dropInstance();
     throw new Error('Mixamo dunker GLB produced no root');
   }
 
@@ -192,19 +249,32 @@ export async function createMixamoAthlete(
   anims.walk = undefined;
   anims.tpose = undefined;
 
-  const bvhText = await loadDunkBvhText({
-    text: typeof options?.dunkBvh === 'string' ? options.dunkBvh : undefined,
-    file: options?.dunkBvh instanceof File ? options.dunkBvh : undefined,
-    url: options?.dunkBvhUrl,
-  });
+  const skipHang = !!options?.seated || options?.dunkBvh === '';
   let dunkTakeMeta: BvhTakeMeta | null = null;
-  if (bvhText) {
-    const built = buildMixamoGroupFromBvh(scene, `${name}_dunkTake`, bones, rest, bvhText);
-    anims.dunkTake = built.group;
-    dunkTakeMeta = built.meta;
-    (['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHAWK', '360_SPIN'] as HangStyle[]).forEach((style) => {
-      anims.slam[style] = built.group;
-    });
+  if (!skipHang) {
+    try {
+      const bvhText = await loadDunkBvhText({
+        text: typeof options?.dunkBvh === 'string' ? options.dunkBvh : undefined,
+        file: options?.dunkBvh instanceof File ? options.dunkBvh : undefined,
+        url: options?.dunkBvhUrl,
+      });
+      if (scene.isDisposed) {
+        throw new Error('Mixamo dunker scene disposed');
+      }
+      const built = buildMixamoGroupFromBvh(scene, `${name}_dunkTake`, bones, rest, bvhText);
+      anims.dunkTake = built.group;
+      dunkTakeMeta = built.meta;
+      (['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHAWK', '360_SPIN'] as HangStyle[]).forEach((style) => {
+        anims.slam[style] = built.group;
+      });
+    } catch (err) {
+      dropInstance();
+      throw err;
+    }
+  }
+  if (!skipHang && !anims.dunkTake) {
+    dropInstance();
+    throw new Error('Elijah dunk BVH missing — hang body required');
   }
 
   const tint = options?.tint;
@@ -212,6 +282,13 @@ export async function createMixamoAthlete(
     mesh.receiveShadows = !!shadowGen;
     mesh.isPickable = false;
     shadowGen?.addShadowCaster(mesh);
+    if (mesh.material && !shadowGen) {
+      if (mesh.material instanceof PBRMaterial) {
+        mesh.material.unlit = true;
+      } else if (mesh.material instanceof StandardMaterial) {
+        mesh.material.disableLighting = true;
+      }
+    }
     if (tint && mesh.material && 'emissiveColor' in mesh.material) {
       const mat = mesh.material as StandardMaterial;
       mat.emissiveColor = tint.scale(0.12);
@@ -266,14 +343,19 @@ export async function createMixamoAthlete(
     anims.run.start(true, rate);
   };
 
+  const holdClipFrame = (group: AnimationGroup) => {
+    group.stop();
+    group.goToFrame(group.from);
+    group.pause();
+  };
+
   const playIdle = () => {
     stopSlamClips();
     anims.run?.stop();
     anims.walk?.stop();
     anims.tpose?.stop();
     if (!anims.idle) return;
-    if (anims.idle.isPlaying) return;
-    anims.idle.start(true, 1);
+    holdClipFrame(anims.idle);
   };
 
   const writeLocal = (bone: Bone, q: Quaternion) => {

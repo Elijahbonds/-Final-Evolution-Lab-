@@ -414,21 +414,37 @@ export async function loadDunkBvhText(options?: {
   file?: File;
   url?: string;
 }): Promise<string> {
-  if (options?.text) return isElijahDunkTake(options.text) ? options.text : '';
+  if (options?.text != null) {
+    if (!isElijahDunkTake(options.text)) {
+      throw new Error('Elijah dunk BVH missing — hang body required');
+    }
+    return options.text;
+  }
   if (options?.file) {
     const text = await options.file.text();
-    return isElijahDunkTake(text) ? text : '';
+    if (!isElijahDunkTake(text)) {
+      throw new Error('Elijah dunk BVH missing — hang body required');
+    }
+    return text;
   }
   const urls = [options?.url, localAssetUrl(LOCAL_ELIJAH_BVH)].filter((u): u is string => {
     return !!u && !isRemoteAssetUrl(u);
   });
+  if (!urls.length) {
+    throw new Error('Elijah dunk BVH missing — hang body required');
+  }
+  let lastErr: unknown;
   for (const url of urls) {
     try {
       const text = await fetchLocalText(url);
-      if (isElijahDunkTake(text)) return text;
-    } catch {
-      /* try next */
+      if (!isElijahDunkTake(text)) {
+        throw new Error('Elijah dunk BVH missing — hang body required');
+      }
+      return text;
+    } catch (err) {
+      lastErr = err;
     }
   }
-  return '';
+  if (lastErr instanceof Error) throw lastErr;
+  throw new Error('Elijah dunk BVH missing — hang body required');
 }
