@@ -20,7 +20,7 @@ import {
   Texture,
   TransformNode,
 } from '@babylonjs/core';
-import { createMixamoAthlete, MixamoAthlete } from './MixamoAthlete';
+import { createMixamoAthlete, MixamoAthlete, CrowdReact } from './MixamoAthlete';
 
 export interface VeniceNightCourt {
   rim: Mesh;
@@ -30,6 +30,7 @@ export interface VeniceNightCourt {
   skyMat: ShaderMaterial;
   rimSpot: SpotLight;
   crowd: MixamoAthlete[];
+  reactCrowd: (kind: CrowdReact, intensity?: number) => void;
   tick: (timeSec: number) => void;
 }
 
@@ -317,6 +318,12 @@ export async function buildVeniceNightCourt(
     }
   }
 
+  const reactCrowd = (kind: CrowdReact, intensity = 1) => {
+    for (const spectator of crowd) {
+      spectator.poseReact(kind, intensity);
+    }
+  };
+
   const tick = (timeSec: number) => {
     skyMat.setFloat('time', timeSec);
     waterMat.setFloat('time', timeSec);
@@ -334,6 +341,7 @@ export async function buildVeniceNightCourt(
     skyMat,
     rimSpot,
     crowd,
+    reactCrowd,
     tick,
   };
 }

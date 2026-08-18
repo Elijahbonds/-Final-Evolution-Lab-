@@ -82,7 +82,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const [runwaySpeed, setRunwaySpeed] = useState(0);
   const [result, setResult] = useState<ContactOutcome | null>(null);
   const [metrics, setMetrics] = useState<AttemptMetrics | null>(null);
-  const [dunkStyle, setDunkStyle] = useState<'WINDMILL' | 'TOMAHAWK' | '360_SPIN' | 'BETWEEN_LEGS'>('WINDMILL');
+  const [cue, setCue] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [idleFrame, setIdleFrame] = useState<IdleFrame>('BOARDWALK');
   const [ready, setReady] = useState(false);
@@ -91,13 +91,12 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const playSfx = useCallback((fn: () => void) => {
     if (soundEnabled) fn();
   }, [soundEnabled]);
-  const dunkStyleRef = useRef(dunkStyle);
   const playSfxRef = useRef(playSfx);
+  const lastPointerXRef = useRef<number | null>(null);
 
   useEffect(() => {
-    dunkStyleRef.current = dunkStyle;
     playSfxRef.current = playSfx;
-  }, [dunkStyle, playSfx]);
+  }, [playSfx]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -161,14 +160,25 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           playSfxRef.current(() => SoundJuice.playSlam());
           setResult(snap.outcome);
           setMetrics(snap.metrics);
+          court.reactCrowd(snap.outcome?.isMake ? 'cheer' : 'miss', 1);
         }
         if (snap.phase === 'IDLE') {
           athlete.playIdle();
           athlete.root.rotation.y = 0;
+          court.reactCrowd('sit');
         }
         if (snap.phase === 'RUNWAY') athlete.playRun(1.05);
-        if (snap.phase === 'GATHER') athlete.playRun(0.72);
-        if (snap.phase === 'BLOWN') athlete.stopClips();
+        if (snap.phase === 'GATHER') {
+          athlete.playRun(0.72);
+          court.reactCrowd('watch', 0.7);
+        }
+        if (snap.phase === 'PLANT') court.reactCrowd('watch', 1);
+        if (snap.phase === 'HANG') court.reactCrowd('rise', 0.85);
+        if (snap.phase === 'BLOWN') {
+          athlete.stopClips();
+          court.reactCrowd('miss', 0.7);
+          setCue(snap.gatherMiss === 'EARLY' ? 'EARLY' : 'LATE');
+        }
       }
 
       if (snap.phase === 'RUNWAY') {
@@ -188,7 +198,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       if (snap.phase === 'HANG' || snap.phase === 'CONTACT') {
         const p = snap.phase === 'HANG' ? attempt.hangElapsed / 0.5 : 1;
         athlete.poseReverseTwoHand(Math.min(1, 0.45 + p * 0.55));
-        if (dunkStyleRef.current === '360_SPIN') {
+        if (snap.style === '360_SPIN') {
           athlete.root.rotation.y = p * Math.PI * 2;
         } else {
           athlete.root.rotation.y = Math.PI;
@@ -240,28 +250,52 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     }
   };
 
-  const handlePointerDown = () => {
+  const handlePointerDown = (event?: { clientX?: number }) => {
     pointerDownRef.current = true;
+    lastPointerXRef.current = event?.clientX ?? null;
     const attempt = attemptRef.current;
     if (attempt.phase === 'IDLE') {
       setResult(null);
       setMetrics(null);
+      setCue(null);
       playSfx(() => SoundJuice.playCharge());
       attempt.startRunway();
       return;
     }
     if (attempt.phase === 'GATHER') {
-      attempt.inputAfterRelease();
+      attempt.commitPlant();
+      return;
+    }
+    if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') {
+      attempt.inputAir(0);
     }
   };
 
   const handlePointerUp = () => {
     if (!pointerDownRef.current) return;
     pointerDownRef.current = false;
+    lastPointerXRef.current = null;
     const attempt = attemptRef.current;
     if (attempt.phase === 'RUNWAY') {
       attempt.releaseToGather();
+      return;
     }
+    if (attempt.phase === 'PLANT') {
+      attempt.releaseTakeoff();
+    }
+  };
+
+  const handlePointerMove = (event: { clientX: number }) => {
+    const attempt = attemptRef.current;
+    if (attempt.phase !== 'TAKEOFF' && attempt.phase !== 'HANG') return;
+    if (lastPointerXRef.current === null) {
+      lastPointerXRef.current = event.clientX;
+      attempt.inputAir(0);
+      return;
+    }
+    const dx = (event.clientX - lastPointerXRef.current) / 140;
+    lastPointerXRef.current = event.clientX;
+    attempt.inputAir(dx);
   };
 
   const eastbay = EASTBAY_MASTER_STANDARD;
@@ -272,8 +306,9 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full touch-none z-0"
-        onPointerDown={handlePointerDown}
+        onPointerDown={(e) => handlePointerDown(e)}
         onPointerUp={handlePointerUp}
+        onPointerMove={handlePointerMove}
       />
 
       <div className="relative z-10 p-6 flex items-start justify-between pointer-events-none">
@@ -329,13 +364,11 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         </div>
       )}
 
-      {phase !== 'IDLE' && (
+      {cue && phase === 'IDLE' && !showCase && (
         <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-          <div className="px-4 py-2 rounded-xl bg-black/55 border border-white/10">
-            <span className="text-[10px] font-mono font-bold text-[#00F2FF] uppercase tracking-widest">
-              {phase === 'BLOWN' ? 'GATHER BLOWN' : phase}
-            </span>
-          </div>
+          <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest">
+            {cue}
+          </span>
         </div>
       )}
 
@@ -379,27 +412,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         </div>
       )}
 
-      <div className="relative z-10 p-6 flex flex-col sm:flex-row items-center justify-between gap-4 pointer-events-none">
-        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-md pointer-events-auto">
-          {(['WINDMILL', 'TOMAHAWK', '360_SPIN', 'BETWEEN_LEGS'] as const).map((style) => (
-            <button
-              key={style}
-              onClick={() => {
-                playSfx(() => SoundJuice.playZoneBeep());
-                setDunkStyle(style);
-              }}
-              className={`px-3 py-2 rounded-xl text-[10px] font-mono font-bold transition-all cursor-pointer ${
-                dunkStyle === style
-                  ? 'bg-[#00F2FF]/20 text-[#00F2FF] border border-[#00F2FF]/40'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              {style.replace('_', ' ')}
-            </button>
-          ))}
-        </div>
-
-        {phase === 'IDLE' || phase === 'RUNWAY' || phase === 'GATHER' ? (
+      <div className="relative z-10 p-6 flex flex-col sm:flex-row items-center justify-end gap-4 pointer-events-none">
+        {phase === 'IDLE' || phase === 'RUNWAY' || phase === 'GATHER' || phase === 'PLANT' ? (
           <div className="flex items-center gap-4 pointer-events-auto">
             {phase === 'RUNWAY' && (
               <div className="w-40 space-y-1">
@@ -416,9 +430,9 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
               </div>
             )}
             <button
-              onMouseDown={handlePointerDown}
+              onMouseDown={(e) => handlePointerDown(e)}
               onMouseUp={handlePointerUp}
-              onTouchStart={handlePointerDown}
+              onTouchStart={(e) => handlePointerDown(e.touches[0])}
               onTouchEnd={handlePointerUp}
               onMouseLeave={() => {
                 if (pointerDownRef.current) handlePointerUp();
@@ -427,11 +441,13 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
             >
               <Play className="w-4 h-4 fill-black" />
               <span>
-                {phase === 'GATHER'
-                  ? 'HOLD STEADY — DON\'T BLOW IT'
-                  : phase === 'RUNWAY'
-                    ? 'RELEASE TO GATHER'
-                    : 'HOLD TO RUN · RELEASE TO GATHER'}
+                {phase === 'PLANT'
+                  ? 'HOLD THE PLANT · RELEASE TO GO'
+                  : phase === 'GATHER'
+                    ? 'PLANT IT'
+                    : phase === 'RUNWAY'
+                      ? 'RELEASE TO GATHER'
+                      : 'HOLD TO RUN · RELEASE TO GATHER'}
               </span>
             </button>
           </div>

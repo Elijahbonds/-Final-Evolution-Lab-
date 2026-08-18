@@ -44,9 +44,12 @@ export interface MixamoAthlete {
   poseTakeoff: (intensity: number) => void;
   poseReverseTwoHand: (intensity: number) => void;
   poseSit: () => void;
+  poseReact: (kind: CrowdReact, intensity?: number) => void;
   resetPose: () => void;
   dispose: () => void;
 }
+
+export type CrowdReact = 'sit' | 'watch' | 'rise' | 'cheer' | 'miss';
 
 const containers = new WeakMap<Scene, AssetContainer>();
 
@@ -239,6 +242,36 @@ export async function createMixamoAthlete(
     applyEuler('RightArm', 0.35, 0, -0.4);
   };
 
+  const poseReact = (kind: CrowdReact, intensity = 1) => {
+    stopClips();
+    const i = intensity;
+    applyEuler('LeftUpLeg', 1.28, 0.08, 0);
+    applyEuler('RightUpLeg', 1.28, -0.08, 0);
+    applyEuler('LeftLeg', 1.4, 0, 0);
+    applyEuler('RightLeg', 1.4, 0, 0);
+    if (kind === 'sit') {
+      poseSit();
+      return;
+    }
+    if (kind === 'watch') {
+      applyEuler('Spine', 0.28 * i, 0, 0);
+      applyEuler('Neck', 0.22 * i, 0, 0);
+      applyEuler('LeftArm', 0.5 * i, 0, 0.2);
+      applyEuler('RightArm', 0.5 * i, 0, -0.2);
+      return;
+    }
+    if (kind === 'rise' || kind === 'cheer') {
+      const up = kind === 'cheer' ? 1 : 0.62;
+      applyEuler('Spine', -0.18 * i, 0, 0);
+      applyEuler('LeftArm', -2.05 * i * up, 0.18 * i, 0.28 * i);
+      applyEuler('RightArm', -2.15 * i * up, -0.16 * i, -0.28 * i);
+      return;
+    }
+    applyEuler('Spine', -0.08 * i, 0.12 * i, 0);
+    applyEuler('LeftArm', 0.55 * i, 0, 0.75 * i);
+    applyEuler('RightArm', -0.9 * i, 0, -0.35 * i);
+  };
+
   if (options?.seated) {
     poseSit();
     basketball.setEnabled(false);
@@ -269,6 +302,7 @@ export async function createMixamoAthlete(
     poseTakeoff,
     poseReverseTwoHand,
     poseSit,
+    poseReact,
     resetPose,
     dispose,
   };

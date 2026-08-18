@@ -116,7 +116,7 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'babylon
                     SLAM DUNK CONTEST
                   </h3>
                   <p className="text-xs font-mono text-zinc-300 mt-1.5 leading-relaxed">
-                    Venice Beach night court. Run the floor, gather without blowing it, finish a reverse two-hand. Eastbay Master Standard is the CASE comparison, not the toy.
+                    Venice Beach night court. Run the floor, plant the gather, finish at the rim. Eastbay Master Standard is the CASE comparison, not the toy.
                   </p>
                 </div>
 
