@@ -4,6 +4,12 @@ import { Vector3, FreeCamera, Color3, TransformNode } from '@babylonjs/core';
 import { createBabylonContext } from '../../lib/babylon/BabylonSceneBuilder';
 import { abortMixamoLoad, createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
 import { buildVeniceNightCourt, VeniceNightCourt } from '../../lib/babylon/VeniceNightCourt';
+import {
+  hideCheapCourtMeshes,
+  hideCheapSurroundMeshes,
+  loadMeshyVeniceCourt,
+  MeshyVeniceCourt,
+} from '../../lib/babylon/MeshyVeniceCourt';
 import { directedFraming } from '../../lib/babylon/veniceDunkCamera';
 import {
   VeniceDunkAttempt,
@@ -27,6 +33,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const attemptRef = useRef(new VeniceDunkAttempt(-6.2, 5.5, 3.05));
   const athleteRef = useRef<MixamoAthlete | null>(null);
   const courtRef = useRef<VeniceNightCourt | null>(null);
+  const meshyCourtRef = useRef<MeshyVeniceCourt | null>(null);
   const dunkCamRef = useRef<FreeCamera | null>(null);
   const hoopPosRef = useRef(new Vector3(0, 3.05, 5.5));
   const pointerDownRef = useRef(false);
@@ -91,17 +98,50 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
     const boot = async () => {
       try {
+        // Cheap procedural court renders first — court and athlete gameplay
+        // never wait on the Meshy mural, and the beige/blue slab is never
+        // an infinite spinner.
+        const court = await buildVeniceNightCourt(scene, shadowGenerator, hoop, {
+          spectators: false,
+          previewSafe: true,
+        });
+        if (disposed || bootAborted || scene.isDisposed) {
+          return;
+        }
+        courtRef.current = court;
+
+        // Meshy court + surround: fetch + File + glTF import on the LIVE
+        // scene, fully resolved (load, attach, hideCheap) BEFORE the
+        // athlete's hang-required timeout below can start, let alone
+        // dispose anything. This load has its own timeout and is
+        // best-effort — any failure keeps the cheap court visible and
+        // must never throw out of boot() or touch athlete state.
+        try {
+          const meshy = await loadMeshyVeniceCourt(scene, {
+            courtWidth: 15.2,
+            courtDepth: 28,
+            surroundWidth: 60,
+            surroundDepth: 60,
+            courtCenterZ: 5.0,
+          });
+          if (disposed || bootAborted || scene.isDisposed) {
+            meshy.dispose();
+          } else {
+            meshyCourtRef.current = meshy;
+            if (meshy.courtLoaded) hideCheapCourtMeshes(scene);
+            if (meshy.surroundLoaded) hideCheapSurroundMeshes(scene);
+          }
+        } catch {
+          /* Meshy mural is best-effort; cheap procedural court stays up */
+        }
+
+        if (disposed || bootAborted || scene.isDisposed) {
+          return;
+        }
+
+        // Hang-required stays scoped to the athlete only: GLB + Elijah BVH.
         await withTimeout(
           (async () => {
-            const court = await buildVeniceNightCourt(scene, shadowGenerator, hoop, {
-              spectators: false,
-              previewSafe: true,
-            });
-            if (disposed || bootAborted || scene.isDisposed) {
-              return;
-            }
-            courtRef.current = court;
-
             const athlete = await createMixamoAthlete(scene, 'veniceDunker', shadowGenerator, {
               tint: new Color3(0.05, 0.55, 0.7),
             });
@@ -283,6 +323,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       scene.onBeforeRenderObservable.remove(observer);
       athleteRef.current?.dispose();
       athleteRef.current = null;
+      meshyCourtRef.current?.dispose();
+      meshyCourtRef.current = null;
       courtRef.current = null;
       dunkCamRef.current = null;
       ctx.dispose();
