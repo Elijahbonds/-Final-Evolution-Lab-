@@ -11,6 +11,7 @@ import {
   metricsFromPlant,
   decideContact,
   judgeGatherCommit,
+  gatherWindowState,
   VeniceDunkAttempt,
 } from '../src/core/VeniceDunkLoop';
 
@@ -29,7 +30,7 @@ function driveToGather(attempt: VeniceDunkAttempt, runwayFrames = 32): void {
 
 function commitWhenWindow(attempt: VeniceDunkAttempt, maxFrames = 50): boolean {
   for (let i = 0; i < maxFrames; i++) {
-    if (judgeGatherCommit(attempt.gatherElapsed, attempt.rootZ()) === 'WINDOW') {
+    if (judgeGatherCommit(attempt.rootZ()) === 'WINDOW') {
       return attempt.commitPlant() === 'WINDOW';
     }
     attempt.tick(1 / 60);
@@ -119,6 +120,10 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     driveToGather(idle);
     for (let i = 0; i < 15; i++) idle.tick(1 / 60);
     const after024 = idle.phase;
+    const zone024 = gatherWindowState(idle.rootZ());
+
+    for (let i = 0; i < 9; i++) idle.tick(1 / 60);
+    const after396 = idle.phase;
 
     const mash = new VeniceDunkAttempt();
     driveToGather(mash);
@@ -126,25 +131,30 @@ export function runVeniceDunkLoopTests(): TestResult[] {
 
     const late = new VeniceDunkAttempt();
     driveToGather(late);
+    let lateSawPlant = false;
     for (let i = 0; i < 80; i++) {
       late.tick(1 / 60);
+      if (late.phase === 'PLANT') lateSawPlant = true;
       if (late.phase === 'BLOWN') break;
     }
 
     const passed =
       after024 !== 'PLANT' &&
-      after024 !== 'TAKEOFF' &&
+      after024 !== 'BLOWN' &&
+      after396 !== 'PLANT' &&
       mashVerdict === 'EARLY' &&
       mash.phase === 'BLOWN' &&
       mash.outcome === null &&
       late.phase === 'BLOWN' &&
       late.gatherMiss === 'LATE' &&
+      late.plant === null &&
+      !lateSawPlant &&
       late.outcome === null;
     results.push({
-      name: 'Gather can miss early or late; doing nothing does not auto-plant',
+      name: 'Gather window: no 0.24s auto-plant; late miss fires without ever planting',
       passed,
-      actual: `idle0.24=${after024} mash=${mashVerdict}/${mash.phase} late=${late.phase}/${late.gatherMiss}`,
-      expected: '0.24s still not PLANT; mash EARLY BLOWN; idle LATE BLOWN; outcome null',
+      actual: `t0.24=${after024}/${zone024} t0.396=${after396} mash=${mashVerdict} late=${late.phase}/${late.gatherMiss} latePlanted=${lateSawPlant}`,
+      expected: '0.24s and 0.396s never PLANT; mash EARLY; idle LATE without a plant phase',
     });
   }
 

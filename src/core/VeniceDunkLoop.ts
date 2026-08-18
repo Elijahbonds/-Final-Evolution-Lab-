@@ -57,10 +57,17 @@ export const PHASE_SECONDS = {
 } as const;
 
 export const PLANT_MARK_Z = -0.7;
-export const GATHER_EARLY_Z = 1.15;
-export const GATHER_LATE_Z = 0.55;
-export const GATHER_MASH_S = 0.10;
-export const GATHER_LATE_S = 0.62;
+export const GATHER_WINDOW_BEFORE = 0.55;
+export const GATHER_WINDOW_AFTER = 0.28;
+
+export type GatherZone = 'APPROACH' | 'WINDOW' | 'PASSED';
+
+export function gatherWindowState(rootZ: number, plantZ: number = PLANT_MARK_Z): GatherZone {
+  const delta = rootZ - plantZ;
+  if (delta < -GATHER_WINDOW_BEFORE) return 'APPROACH';
+  if (delta > GATHER_WINDOW_AFTER) return 'PASSED';
+  return 'WINDOW';
+}
 
 const STANDING_ROOT_Y = 0;
 const PLANT_ROOT_Y = 0.04;
@@ -109,15 +116,10 @@ export function metricsFromPlant(
   };
 }
 
-export function judgeGatherCommit(
-  gatherElapsed: number,
-  rootZ: number,
-  plantZ: number = PLANT_MARK_Z
-): GatherCommit {
-  if (gatherElapsed < GATHER_MASH_S) return 'EARLY';
-  if (rootZ < plantZ - GATHER_EARLY_Z) return 'EARLY';
-  if (rootZ > plantZ + GATHER_LATE_Z) return 'LATE';
-  if (gatherElapsed > GATHER_LATE_S) return 'LATE';
+export function judgeGatherCommit(rootZ: number, plantZ: number = PLANT_MARK_Z): GatherCommit {
+  const zone = gatherWindowState(rootZ, plantZ);
+  if (zone === 'APPROACH') return 'EARLY';
+  if (zone === 'PASSED') return 'LATE';
   return 'WINDOW';
 }
 
@@ -200,7 +202,6 @@ export class VeniceDunkAttempt {
   plant: PlantSample | null = null;
 
   runwayElapsed = 0;
-  gatherElapsed = 0;
   plantElapsed = 0;
   takeoffElapsed = 0;
   hangElapsed = 0;
@@ -240,7 +241,6 @@ export class VeniceDunkAttempt {
     this.metrics = null;
     this.plant = null;
     this.runwayElapsed = 0;
-    this.gatherElapsed = 0;
     this.plantElapsed = 0;
     this.takeoffElapsed = 0;
     this.hangElapsed = 0;
@@ -271,13 +271,12 @@ export class VeniceDunkAttempt {
   releaseToGather(): void {
     if (this.phase !== 'RUNWAY') return;
     this.phase = 'GATHER';
-    this.gatherElapsed = 0;
   }
 
   /** Press during gather — early / window / late. Window enters plant; early/late blow. */
   commitPlant(): GatherCommit | null {
     if (this.phase !== 'GATHER') return null;
-    const verdict = judgeGatherCommit(this.gatherElapsed, this.posZ, this.plantMarkZ);
+    const verdict = judgeGatherCommit(this.posZ, this.plantMarkZ);
     this.gatherMiss = verdict === 'WINDOW' ? null : verdict;
     if (verdict !== 'WINDOW') {
       this.gatherBlown = true;
@@ -324,10 +323,9 @@ export class VeniceDunkAttempt {
         break;
       }
       case 'GATHER': {
-        this.gatherElapsed += dt;
         this.approachSpeed = Math.max(2.8, this.approachSpeed * (1 - dt * 0.18));
         this.posZ += this.approachSpeed * dt;
-        if (judgeGatherCommit(this.gatherElapsed, this.posZ, this.plantMarkZ) === 'LATE') {
+        if (gatherWindowState(this.posZ, this.plantMarkZ) === 'PASSED') {
           this.gatherBlown = true;
           this.gatherMiss = 'LATE';
           this.phase = 'BLOWN';
