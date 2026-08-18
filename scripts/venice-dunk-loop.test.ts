@@ -667,10 +667,22 @@ export function runVeniceDunkLoopTests(): TestResult[] {
 
   {
     const c = VENICE_RESULT_COPY;
+    const plantHead = 'Missed the plant, not the rim.';
     const lateLine = 'Gather was late. The block foot paid for it.';
+    const earlyLine = 'Left too early. You never loaded it.';
+    const mushyLine = 'You stayed in the plant.';
+    const airLine = "Never got there. That's air.";
+    const rimLine = 'Caught iron. Off the window.';
     const modeSrc = (() => {
       try {
         return readFileSync(new URL('../src/components/modes/BabylonDunkMode.tsx', import.meta.url), 'utf8');
+      } catch {
+        return '';
+      }
+    })();
+    const copySrc = (() => {
+      try {
+        return readFileSync(new URL('../src/core/veniceResultCopy.ts', import.meta.url), 'utf8');
       } catch {
         return '';
       }
@@ -719,31 +731,35 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       air.outcome?.missReason === 'AIR' &&
       rim.outcome?.missReason === 'RIM_OUT' &&
       caseMissSub('LATE') === lateLine &&
-      caseMissSub('EARLY') === c.missSubEarly &&
-      caseMissSub('MUSHY_PLANT') === c.missSubMushy &&
-      caseMissSub('MUSHY_PLANT') !== lateLine &&
+      caseMissSub('EARLY') === earlyLine &&
+      caseMissSub('MUSHY_PLANT') === mushyLine &&
+      caseMissSub('AIR') === airLine &&
+      caseMissSub('RIM_OUT') === rimLine &&
+      caseMissHeadline('LATE') === plantHead &&
+      caseMissHeadline('EARLY') === plantHead &&
+      caseMissHeadline('MUSHY_PLANT') === plantHead &&
+      caseMissHeadline('AIR') === airLine &&
+      caseMissHeadline('RIM_OUT') === rimLine &&
+      caseMissHeadline('AIR') !== plantHead &&
+      caseMissHeadline('RIM_OUT') !== plantHead &&
       caseMissSub('EARLY') !== lateLine &&
-      caseMissSub('AIR') === c.missSubAir &&
-      caseMissSub('RIM_OUT') === c.missSubRimOut &&
-      caseMissHeadline('LATE') === c.missHeadlineLate &&
-      caseMissHeadline('EARLY') === c.missHeadlineEarly &&
-      caseMissHeadline('MUSHY_PLANT') === c.missHeadline &&
-      caseMissHeadline('AIR') === c.missHeadlineAir &&
-      caseMissHeadline('RIM_OUT') === c.missHeadlineRimOut &&
-      caseMissHeadline('AIR') !== c.missHeadline &&
-      caseMissHeadline('RIM_OUT') !== c.missHeadline &&
+      caseMissSub('MUSHY_PLANT') !== lateLine &&
       c.makeHeadline === "That's the Bonds Bounce." &&
-      c.missSubAir === "Never got there. That's air." &&
-      c.missSubRimOut === 'Caught iron. Off the window.' &&
+      c.missHeadline === plantHead &&
       !c.missHeadline.includes('SLAMMED') &&
+      !copySrc.includes('missHeadlineLate') &&
+      !copySrc.includes('missHeadlineEarly') &&
+      !copySrc.includes('You mashed the mark.') &&
+      !copySrc.includes('Held too long. The bounce sat.') &&
+      !copySrc.includes("'Gather was late.'") &&
+      !copySrc.includes("'Gather was early.'") &&
       modeSrc.includes('caseMissHeadline') &&
-      modeSrc.includes("BLOWN") &&
       modeSrc.includes('setResult(snap.outcome)');
     results.push({
-      name: 'Miss routing: LATE late, EARLY early, MUSHY mushy; headline matches; CASE not skipped',
+      name: 'Miss routing: locked lines only; plant headline on LATE/EARLY/MUSHY; CASE not skipped',
       passed: routed,
-      actual: `late=${late.outcome?.missReason}/${caseMissHeadline('LATE')}/${caseMissSub('LATE')} early=${mash.outcome?.missReason}/${caseMissHeadline('EARLY')} mushy=${mushy.outcome?.missReason}/${caseMissSub('MUSHY_PLANT')} air=${air.outcome?.missReason} rim=${rim.outcome?.missReason} headAir=${caseMissHeadline('AIR')}`,
-      expected: 'LATE gets late line, EARLY not late, MUSHY not gather-late, AIR/RIM_OUT own lines, headlines match, BLOWN sets CASE',
+      actual: `late=${late.outcome?.missReason}/${caseMissHeadline('LATE')}/${caseMissSub('LATE')} early=${mash.outcome?.missReason}/${caseMissSub('EARLY')} mushy=${mushy.outcome?.missReason}/${caseMissSub('MUSHY_PLANT')} air=${air.outcome?.missReason}/${caseMissHeadline('AIR')} rim=${rim.outcome?.missReason}/${caseMissHeadline('RIM_OUT')}`,
+      expected: 'plant headline on LATE/EARLY/MUSHY; exact locked lines; AIR/RIM_OUT own headline+line; BLOWN sets CASE',
     });
   }
 

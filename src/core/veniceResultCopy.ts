@@ -1,16 +1,11 @@
-/** Venice CASE card voice. Route headline and sub by miss reason. */
+/** Locked Venice CASE card voice. Wire missReason to these strings only. */
 export const VENICE_RESULT_COPY = {
   makeHeadline: "That's the Bonds Bounce.",
   makeSub: 'The card is the proof. You ran Eastbay.',
   missHeadline: 'Missed the plant, not the rim.',
-  missHeadlineLate: 'Gather was late.',
-  missHeadlineEarly: 'Gather was early.',
-  missHeadlineAir: 'Never got there.',
-  missHeadlineRimOut: 'Caught iron.',
-  missSub: 'Gather was late. The block foot paid for it.',
   missSubLate: 'Gather was late. The block foot paid for it.',
-  missSubEarly: 'You mashed the mark.',
-  missSubMushy: 'Held too long. The bounce sat.',
+  missSubEarly: 'Left too early. You never loaded it.',
+  missSubMushy: 'You stayed in the plant.',
   missSubAir: "Never got there. That's air.",
   missSubRimOut: 'Caught iron. Off the window.',
   nextAttempt: 'NEXT ATTEMPT. Same plant.',
@@ -23,11 +18,10 @@ export const VENICE_RESULT_COPY = {
 
 export type CaseMissReason = 'EARLY' | 'LATE' | 'AIR' | 'SHORT' | 'RIM_OUT' | 'MUSHY_PLANT' | null;
 
+/** Plant-miss headline only on LATE / EARLY / MUSHY. AIR and RIM_OUT use their locked line. */
 export function caseMissHeadline(reason: CaseMissReason): string {
-  if (reason === 'LATE') return VENICE_RESULT_COPY.missHeadlineLate;
-  if (reason === 'EARLY') return VENICE_RESULT_COPY.missHeadlineEarly;
-  if (reason === 'AIR') return VENICE_RESULT_COPY.missHeadlineAir;
-  if (reason === 'RIM_OUT') return VENICE_RESULT_COPY.missHeadlineRimOut;
+  if (reason === 'AIR') return VENICE_RESULT_COPY.missSubAir;
+  if (reason === 'RIM_OUT') return VENICE_RESULT_COPY.missSubRimOut;
   return VENICE_RESULT_COPY.missHeadline;
 }
 
