@@ -73,22 +73,12 @@ export function takeoffWorldY(p: number, plantY: number, apexY: number): number 
 
 /**
  * Hang y at p in [0,1].
- * p=0 MUST equal takeoffApexY — the rejected formula apexHeight*sin((1-p)*π) is 0 at p=0.
+ * p=0 MUST equal takeoffApexY. After apex, y only falls (ballistic). hangDropM is fall, not lift.
  */
-export function hangWorldY(p: number, takeoffApexY: number, extraHangM: number): number {
-  const peak = takeoffApexY + extraHangM;
-  // Root is the feet. Hands reach the rim via the slam pose — do not hop the body to rimY.
-  const settleY = takeoffApexY + extraHangM * 0.4;
-  if (p <= 0) return takeoffApexY;
-  if (p >= 1) return settleY;
-  if (p < 0.38) {
-    const t = p / 0.38;
-    const e = 1 - (1 - t) * (1 - t);
-    return takeoffApexY + (peak - takeoffApexY) * e;
-  }
-  const t = (p - 0.38) / 0.62;
-  const e = t * t * (3 - 2 * t);
-  return peak + (settleY - peak) * e;
+export function hangWorldY(p: number, takeoffApexY: number, hangDropM: number): number {
+  const t = clamp01(p);
+  const drop = Math.max(0, hangDropM) * t * t;
+  return takeoffApexY - drop;
 }
 
 export function landWorldY(p: number, hangEndY: number, groundY: number): number {
@@ -164,11 +154,11 @@ export function decideContact(
     return { isMake: false, missReason: 'SHORT', rimDeflectionM: 0 };
   }
 
-  if (plant.gctMs > 260 || (plant.gctMs > 220 && plant.compression01 < 0.35)) {
+  if (plant.gctMs > 240 || (plant.gctMs > 210 && plant.compression01 < 0.32)) {
     return { isMake: false, missReason: 'MUSHY_PLANT', rimDeflectionM: 0.035 };
   }
 
-  if (plant.gctMs < 108 || plant.compression01 < 0.26) {
+  if (plant.gctMs < 100 || plant.compression01 < 0.20) {
     return { isMake: false, missReason: 'RIM_OUT', rimDeflectionM: 0.07 };
   }
 
@@ -358,9 +348,9 @@ export class VeniceDunkAttempt {
         this.posZ += this.approachSpeed * dt * 0.12;
         const load = Math.min(1, this.approachSpeed / 8.8);
         if (this.plantHolding) {
-          this.compression01 = Math.min(1, this.compression01 + (1.15 + load) * dt);
+          this.compression01 = Math.min(1, this.compression01 + (3.8 + load * 1.1) * dt);
           this.trunkLeanDeg = 4.5 + (1 - load) * 7 + this.compression01 * 3;
-          if (this.plantElapsed >= 0.32) {
+          if (this.plantElapsed >= 0.36) {
             this.plantHolding = false;
             this.leaveGround();
           }
@@ -443,8 +433,8 @@ export class VeniceDunkAttempt {
   }
 
   extraHang(): number {
-    if (!this.plant) return 0.18;
-    return 0.12 + this.plant.compression01 * 0.22;
+    if (!this.plant) return 0.16;
+    return 0.10 + (1 - this.plant.compression01) * 0.12;
   }
 
   rootY(): number {

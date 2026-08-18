@@ -38,14 +38,31 @@ function commitWhenWindow(attempt: VeniceDunkAttempt, maxFrames = 50): boolean {
   return false;
 }
 
-function finishThroughContact(attempt: VeniceDunkAttempt): void {
-  for (let i = 0; i < 14; i++) attempt.tick(1 / 60);
-  attempt.releaseTakeoff();
+function holdPlantFrames(attempt: VeniceDunkAttempt, frames: number): void {
+  for (let i = 0; i < frames; i++) {
+    if (attempt.phase !== 'PLANT') break;
+    attempt.tick(1 / 60);
+  }
+}
+
+function finishAirToContact(attempt: VeniceDunkAttempt): void {
+  if (attempt.phase === 'PLANT') attempt.releaseTakeoff();
   for (let i = 0; i < 80; i++) {
     attempt.tick(1 / 60);
-    if (attempt.phase === 'HANG') attempt.inputAir(0);
+    if (attempt.phase === 'HANG' && attempt.hangElapsed / 0.5 >= 0.32) {
+      attempt.inputAir(0);
+    }
     if (attempt.outcome) break;
   }
+}
+
+function playLiveAttempt(plantFrames: number): VeniceDunkAttempt {
+  const attempt = new VeniceDunkAttempt();
+  driveToGather(attempt);
+  commitWhenWindow(attempt);
+  holdPlantFrames(attempt, plantFrames);
+  finishAirToContact(attempt);
+  return attempt;
 }
 
 export function runVeniceDunkLoopTests(): TestResult[] {
@@ -66,13 +83,14 @@ export function runVeniceDunkLoopTests(): TestResult[] {
 
   {
     const apex = 2.1;
-    const samples = [0, 0.1, 0.25, 0.4, 0.6].map((p) => hangWorldY(p, apex, 0.2));
-    const passed = samples.every((y) => y >= apex - 0.001);
+    const samples = [0, 0.1, 0.25, 0.4, 0.6, 1].map((p) => hangWorldY(p, apex, 0.2));
+    const neverRises = samples.every((y, i) => y <= apex + 1e-9 && (i === 0 || y <= samples[i - 1] + 1e-9));
+    const falls = samples[samples.length - 1] < apex;
     results.push({
-      name: 'Hang y never drops below takeoff apex before the rim settle',
-      passed,
+      name: 'Hang y never rises after takeoff apex (ballistic fall)',
+      passed: neverRises && falls && samples[0] === apex,
       actual: samples.map((y) => y.toFixed(3)).join(', '),
-      expected: 'all samples >= 2.1',
+      expected: 'monotone non-increasing from 2.1, last < apex',
     });
   }
 
@@ -81,7 +99,8 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     driveToGather(attempt);
     const planted = commitWhenWindow(attempt);
     const afterPlant = attempt.outcome;
-    finishThroughContact(attempt);
+    holdPlantFrames(attempt, 10);
+    finishAirToContact(attempt);
     const passed =
       planted &&
       afterPlant === null &&
@@ -203,18 +222,27 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     driveToGather(attempt);
     const planted = commitWhenWindow(attempt);
     const afterCommit = attempt.outcome;
-    for (let i = 0; i < 12; i++) attempt.tick(1 / 60);
+    holdPlantFrames(attempt, 10);
     const gctWhileHeld = attempt.plantElapsed * 1000;
     attempt.releaseTakeoff();
     let firstHangY: number | null = null;
     let apexAtHang: number | null = null;
+    let hangRose = false;
+    let lastHangY = Number.POSITIVE_INFINITY;
     let plantBeforeOutcome = false;
     for (let i = 0; i < 200; i++) {
       attempt.tick(1 / 60);
-      if (attempt.phase === 'HANG') attempt.inputAir(0);
-      if (attempt.phase === 'HANG' && firstHangY === null) {
-        firstHangY = attempt.rootY();
-        apexAtHang = attempt.takeoffApexY;
+      if (attempt.phase === 'HANG' && attempt.hangElapsed / 0.5 >= 0.32) attempt.inputAir(0);
+      if (attempt.phase === 'HANG') {
+        const y = attempt.rootY();
+        if (firstHangY === null) {
+          firstHangY = y;
+          apexAtHang = attempt.takeoffApexY;
+          lastHangY = y;
+        } else {
+          if (y > lastHangY + 1e-6 || y > (apexAtHang ?? y) + 1e-6) hangRose = true;
+          lastHangY = y;
+        }
       }
       if (attempt.plant && attempt.outcome === null) plantBeforeOutcome = true;
       if (attempt.outcome) break;
@@ -224,20 +252,54 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       apexAtHang !== null &&
       Math.abs(firstHangY - apexAtHang) < 0.08;
     const plantHeld = gctWhileHeld > 80 && attempt.plant !== null && Math.abs((attempt.plant.gctMs) - gctWhileHeld) < 25;
-    const passed = planted && afterCommit === null && continuous && plantBeforeOutcome && plantHeld && attempt.outcome !== null;
+    const passed = planted && afterCommit === null && continuous && !hangRose && plantBeforeOutcome && plantHeld && attempt.outcome !== null;
     results.push({
-      name: 'Live attempt: hang starts at recorded apex; plant hold clocks GCT before outcome',
+      name: 'Live attempt: hang starts at recorded apex and never rises; plant hold clocks GCT',
       passed,
-      actual: `hang0=${firstHangY?.toFixed(3)} apex=${apexAtHang?.toFixed(3)} heldMs=${gctWhileHeld.toFixed(0)} plantMs=${attempt.plant?.gctMs} plantFirst=${plantBeforeOutcome}`,
-      expected: 'hang y ≈ apex, GCT from hold, plant sampled before CONTACT',
+      actual: `hang0=${firstHangY?.toFixed(3)} apex=${apexAtHang?.toFixed(3)} rose=${hangRose} heldMs=${gctWhileHeld.toFixed(0)} plantMs=${attempt.plant?.gctMs}`,
+      expected: 'hang y ≈ apex, no rise, GCT from hold, plant before CONTACT',
     });
   }
 
   {
-    const attempt = new VeniceDunkAttempt();
-    driveToGather(attempt);
-    commitWhenWindow(attempt);
-    finishThroughContact(attempt);
+    const made = playLiveAttempt(10);
+    const passed =
+      made.outcome !== null &&
+      made.outcome.isMake === true &&
+      made.plant !== null &&
+      made.plant.gctMs < 240 &&
+      made.plant.gctMs !== EASTBAY_MASTER_STANDARD.gctMs;
+    results.push({
+      name: 'Live VeniceDunkAttempt can make (not a hand-built 168ms fixture)',
+      passed,
+      actual: `isMake=${made.outcome?.isMake} reason=${made.outcome?.missReason} gct=${made.plant?.gctMs} comp=${made.plant?.compression01.toFixed(2)}`,
+      expected: 'isMake true from the attempt class',
+    });
+  }
+
+  {
+    const shortHold = playLiveAttempt(8);
+    const longHold = playLiveAttempt(22);
+    const gctA = shortHold.plant?.gctMs ?? 0;
+    const gctB = longHold.plant?.gctMs ?? 0;
+    const passed =
+      gctA > 0 &&
+      gctB > 0 &&
+      gctA !== gctB &&
+      gctA !== 283 &&
+      gctB !== 283 &&
+      !(gctA === 164 && gctB === 164) &&
+      longHold.outcome?.isMake === false;
+    results.push({
+      name: 'Live plant GCT varies with hold; long hold is not the only timer and not Eastbay 164',
+      passed,
+      actual: `short=${gctA} long=${gctB} longMake=${longHold.outcome?.isMake} longReason=${longHold.outcome?.missReason}`,
+      expected: 'different GCTs, neither stuck at 283, long hold misses mushy',
+    });
+  }
+
+  {
+    const attempt = playLiveAttempt(10);
     for (let i = 0; i < 80; i++) attempt.tick(1 / 60);
     const passed = attempt.phase === 'IDLE';
     results.push({
@@ -252,7 +314,7 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     const attempt = new VeniceDunkAttempt();
     driveToGather(attempt);
     commitWhenWindow(attempt);
-    for (let i = 0; i < 14; i++) attempt.tick(1 / 60);
+    holdPlantFrames(attempt, 10);
     attempt.releaseTakeoff();
     for (let i = 0; i < 80; i++) {
       attempt.tick(1 / 60);
