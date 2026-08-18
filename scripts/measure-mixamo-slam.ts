@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
 import { createMixamoAthlete } from '../src/lib/babylon/MixamoAthlete';
 import type { HangStyle } from '../src/lib/babylon/slamClips';
+import { CMU_LAYUP_BVH } from '../src/lib/babylon/bvhRetarget';
 
 if (typeof globalThis.FileReader === 'undefined') {
   class NodeFileReader {
@@ -32,7 +33,8 @@ async function main() {
   const scene = new Scene(engine);
   const bytes = readFileSync(new URL('../public/assets/dunker-transformed.glb', import.meta.url));
   const file = new File([bytes], 'dunker-transformed.glb');
-  const athlete = await createMixamoAthlete(scene, 'measureDunker', undefined, { file });
+  const dunkBvh = readFileSync(new URL(`../public/assets/${CMU_LAYUP_BVH}`, import.meta.url), 'utf8');
+  const athlete = await createMixamoAthlete(scene, 'measureDunker', undefined, { file, dunkBvh });
   athlete.stopClips();
   athlete.resetPose();
   athlete.root.position.set(0, 0, 0);

@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
 import { createMixamoAthlete } from '../src/lib/babylon/MixamoAthlete';
-import type { HangStyle } from '../src/lib/babylon/slamClips';
+import { CMU_LAYUP_BVH, ELIJAH_DUNK_BVH } from '../src/lib/babylon/bvhRetarget';
 
 if (typeof globalThis.FileReader === 'undefined') {
   class NodeFileReader {
@@ -31,88 +31,77 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const bytes = readFileSync(new URL('../public/assets/dunker-transformed.glb', import.meta.url));
+  const elijahUrl = new URL(`../public/assets/${ELIJAH_DUNK_BVH}`, import.meta.url);
+  const cmuUrl = new URL(`../public/assets/${CMU_LAYUP_BVH}`, import.meta.url);
+  let bvhPath = cmuUrl;
+  try {
+    readFileSync(elijahUrl);
+    bvhPath = elijahUrl;
+  } catch {
+    /* FEL-unity take is not in this checkout */
+  }
+  const bvhText = readFileSync(bvhPath, 'utf8');
   const athlete = await createMixamoAthlete(scene, 'meshProof', undefined, {
     file: new File([bytes], 'dunker-transformed.glb'),
+    dunkBvh: bvhText,
   });
   athlete.stopClips();
   athlete.resetPose();
 
   const tposeL = athlete.boneWorld('LeftHand');
-  const tposeR = athlete.boneWorld('RightHand');
   const tposeHead = athlete.boneWorld('Head');
 
-  const styles: HangStyle[] = ['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHAWK', '360_SPIN'];
-  const posed = {} as Record<HangStyle, { l: Vector3; r: Vector3; h: Vector3 }>;
-  for (const style of styles) {
-    athlete.seekSlam(style, 1);
-    posed[style] = {
-      l: athlete.boneWorld('LeftHand'),
-      r: athlete.boneWorld('RightHand'),
-      h: athlete.boneWorld('Head'),
-    };
-  }
+  athlete.seekSlam('REVERSE_TWO_HAND', 0);
+  const hang0 = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
+  athlete.seekSlam('REVERSE_TWO_HAND', 0.5);
+  const hangMid = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
+  athlete.seekSlam('REVERSE_TWO_HAND', 1);
+  const hangEnd = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
 
-  athlete.seekSlam('WINDMILL', 0);
-  const mill0 = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
-  athlete.seekSlam('WINDMILL', 0.32);
-  const millMid = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
-  athlete.seekSlam('WINDMILL', 1);
-  const millEnd = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
-  const millSweep =
-    dist(millMid.l, mill0.l) > 0.12 &&
-    dist(millEnd.l, millMid.l) > 0.1 &&
-    athlete.anims.slam.WINDMILL.targetedAnimations.length > 0;
+  const clipName = athlete.dunkTakeName;
+  const groupName = athlete.anims.dunkTake?.name ?? '';
+  const notEulerKeys =
+    !clipName.includes('SLAM_CLIP_KEYS') &&
+    !groupName.includes('SLAM_CLIP_KEYS') &&
+    !groupName.includes('_slam_REVERSE') &&
+    (clipName === 'basketball_dunk__elijah' || clipName === 'cmu_124_06_basketball_layup');
 
-  const rev = posed.REVERSE_TWO_HAND;
-  const mill = posed.WINDMILL;
-  const hawk = posed.TOMAHAWK;
-  const spin = posed['360_SPIN'];
+  const sweep =
+    dist(hangMid.l, hang0.l) + dist(hangEnd.l, hangMid.l) + dist(hangMid.r, hang0.r) > 0.18 &&
+    (athlete.anims.dunkTake?.targetedAnimations.length ?? 0) > 8;
 
-  const reverseUp =
-    rev.l.y >= tposeHead.y + 0.32 &&
-    rev.r.y >= tposeHead.y + 0.32 &&
-    rev.l.y >= tposeL.y + 0.40 &&
-    rev.r.y >= tposeR.y + 0.40 &&
-    Math.abs(rev.l.x - rev.r.x) < 0.5;
-
-  const millDifferent =
-    dist(mill.l, rev.l) > 0.28 &&
-    dist(mill.r, mill.l) > 0.22;
-
-  const hawkChop = hawk.r.y > hawk.l.y + 0.28 && hawk.r.y >= tposeHead.y + 0.2;
-
-  const wrapNotReverse =
-    (spin.l.y + spin.r.y) / 2 < (rev.l.y + rev.r.y) / 2 - 0.1 &&
-    dist(spin.l, rev.l) > 0.2;
+  const leftTheTpose =
+    dist(hangEnd.l, tposeL) > 0.12 ||
+    dist(hangMid.l, tposeL) > 0.12 ||
+    Math.abs(hangEnd.l.y - tposeL.y) > 0.1;
 
   const src = readFileSync(new URL('../src/lib/babylon/MixamoAthlete.ts', import.meta.url), 'utf8');
-  const recipeFree =
-    !src.includes("from './slamSilhouettes'") &&
+  const hangFromBvh =
+    src.includes('bvhRetarget') &&
+    src.includes('dunkTake') &&
     !src.includes('SLAM_CLIP_KEYS') &&
-    !src.includes('SLAM_SPINS') &&
-    src.includes('slamClips') &&
-    src.includes('applyBakedSlamFrame') &&
+    !src.includes("from './slamSilhouettes'") &&
     !src.includes('applyLocalSlam') &&
-    !src.includes('applyPoseMap');
+    !src.includes('buildSlamClip');
 
   const results = [
     {
-      name: 'Reverse two-hand puts both Mixamo hands overhead (not a T-pose shrug)',
-      passed: reverseUp,
-      actual: `tposeL=${tposeL.y.toFixed(3)} revL=${rev.l.y.toFixed(3)} revR=${rev.r.y.toFixed(3)} head=${tposeHead.y.toFixed(3)} spread=${Math.abs(rev.l.x - rev.r.x).toFixed(3)}`,
-      expected: 'both hands >= head+0.32 and tpose+0.40, together',
+      name: 'Hang clip is the imported mocap take, not SLAM_CLIP_KEYS',
+      passed: notEulerKeys && !!athlete.anims.dunkTake,
+      actual: `clip=${clipName} group=${groupName} tracks=${athlete.anims.dunkTake?.targetedAnimations.length ?? 0}`,
+      expected: 'basketball_dunk__elijah or cmu_124_06_basketball_layup — not SLAM_CLIP_KEYS',
     },
     {
-      name: 'Windmill and tomahawk change the seen hands, not just a 360 yaw',
-      passed: millDifferent && hawkChop && wrapNotReverse && millSweep,
-      actual: `millΔ=${dist(mill.l, rev.l).toFixed(3)} hawkR-L=${(hawk.r.y - hawk.l.y).toFixed(3)} spinΔ=${dist(spin.l, rev.l).toFixed(3)} millSweep=${dist(millMid.l, mill0.l).toFixed(3)}→${dist(millEnd.l, millMid.l).toFixed(3)} clips=${athlete.anims.slam.WINDMILL.targetedAnimations.length}`,
-      expected: 'windmill clip sweeps the left hand; tomahawk right high / left low; 360 wrap lower',
+      name: 'Retargeted hang take moves the Mixamo skin off T-pose',
+      passed: sweep && leftTheTpose,
+      actual: `tposeL=${tposeL.y.toFixed(3)} hang0=${hang0.l.y.toFixed(3)} mid=${hangMid.l.y.toFixed(3)} end=${hangEnd.l.y.toFixed(3)} head=${tposeHead.y.toFixed(3)} sweep=${(dist(hangMid.l, hang0.l) + dist(hangEnd.l, hangMid.l)).toFixed(3)}`,
+      expected: 'hands leave T-pose as the mocap hang window is sampled',
     },
     {
-      name: 'Dunker slam path is baked clips, not slamSilhouettes Euler after resetPose',
-      passed: recipeFree,
-      actual: `importsSilhouettes=${src.includes("from './slamSilhouettes'")} clipKeys=${src.includes('SLAM_CLIP_KEYS')} spins=${src.includes('SLAM_SPINS')} baked=${src.includes('slamClips')}`,
-      expected: 'MixamoAthlete hang slam imports slamClips tracks, not slamSilhouettes maps',
+      name: 'Hang slam path is the imported BVH take, not slamSilhouettes Euler',
+      passed: hangFromBvh,
+      actual: `bvh=${src.includes('bvhRetarget')} dunkTake=${src.includes('dunkTake')} clipKeys=${src.includes('SLAM_CLIP_KEYS')}`,
+      expected: 'MixamoAthlete hang imports bvhRetarget / dunkTake, not SLAM_CLIP_KEYS',
     },
   ];
 

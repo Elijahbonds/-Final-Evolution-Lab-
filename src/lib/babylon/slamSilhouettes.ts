@@ -156,7 +156,7 @@ export interface SlamKeyframe {
   map: SlamMap;
 }
 
-/** Authored slam clips. GLB has Idle/Walk/Run/TPose only — these are the dunk bones. */
+/** Legacy Euler maps. Live hang is the imported BVH take, not these keys. */
 export const SLAM_CLIP_KEYS: Record<HangStyle, SlamKeyframe[]> = {
   REVERSE_TWO_HAND: [
     { t: 0, map: TAKEOFF_HANG_START },

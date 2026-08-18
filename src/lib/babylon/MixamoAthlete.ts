@@ -9,7 +9,6 @@ import {
   Scene,
   SceneLoader,
   AssetContainer,
-  Animation,
   AnimationGroup,
   Skeleton,
   Bone,
@@ -27,13 +26,18 @@ import {
 import { sanitizeBoneName } from '../rigSanitizer';
 import {
   HangStyle,
-  HANG_STYLES,
-  SLAM_TRACKS,
   APPROACH_TRACKS,
   slamTrackFrame,
   sampleTrackQuat,
   type SlamTrack,
 } from './slamClips';
+import {
+  applyGroupFrame,
+  buildMixamoGroupFromBvh,
+  hangFrame01,
+  loadDunkBvhText,
+  type BvhTakeMeta,
+} from './bvhRetarget';
 
 export interface MixamoAthlete {
   root: TransformNode;
@@ -46,8 +50,11 @@ export interface MixamoAthlete {
     walk?: AnimationGroup;
     run?: AnimationGroup;
     tpose?: AnimationGroup;
+    dunkTake?: AnimationGroup;
     slam: Record<HangStyle, AnimationGroup>;
   };
+  dunkTakeName: string;
+  dunkTakeMeta: BvhTakeMeta | null;
   basketball: Mesh;
   playRun: (rate?: number) => void;
   playIdle: () => void;
@@ -91,7 +98,14 @@ export async function createMixamoAthlete(
   scene: Scene,
   name: string,
   shadowGen?: ShadowGenerator,
-  options?: { seated?: boolean; tint?: Color3; rootUrl?: string; file?: File }
+  options?: {
+    seated?: boolean;
+    tint?: Color3;
+    rootUrl?: string;
+    file?: File;
+    dunkBvh?: string | File;
+    dunkBvhUrl?: string;
+  }
 ): Promise<MixamoAthlete> {
   const container = await loadMixamoContainer(scene, options?.file ?? options?.rootUrl ?? '/assets/');
   const instance = container.instantiateModelsToScene((n) => `${name}_${n}`, false, {
@@ -146,6 +160,21 @@ export async function createMixamoAthlete(
     group.reset();
   }
   anims.tpose?.stop();
+
+  const bvhText = await loadDunkBvhText({
+    text: typeof options?.dunkBvh === 'string' ? options.dunkBvh : undefined,
+    file: options?.dunkBvh instanceof File ? options.dunkBvh : undefined,
+    url: options?.dunkBvhUrl,
+  });
+  let dunkTakeMeta: BvhTakeMeta | null = null;
+  if (bvhText) {
+    const built = buildMixamoGroupFromBvh(scene, `${name}_dunkTake`, bones, rest, bvhText);
+    anims.dunkTake = built.group;
+    dunkTakeMeta = built.meta;
+    (['REVERSE_TWO_HAND', 'WINDMILL', 'TOMAHAWK', '360_SPIN'] as HangStyle[]).forEach((style) => {
+      anims.slam[style] = built.group;
+    });
+  }
 
   const tint = options?.tint;
   for (const mesh of meshes) {
@@ -269,90 +298,26 @@ export async function createMixamoAthlete(
     writeTrack(APPROACH_TRACKS.TAKEOFF, intensity);
   };
 
-  const buildSlamClip = (style: HangStyle): AnimationGroup => {
-    const track = SLAM_TRACKS[style];
-    const group = new AnimationGroup(`${name}_slam_${style}`, scene);
-    const endFrame = Math.round(track.duration * track.fps);
-    for (const [boneName, keys] of Object.entries(track.bones)) {
-      const bone = bones.get(boneName);
-      const bind = rest.get(boneName);
-      if (!bone || !bind) continue;
-      const makeAnim = (animName: string) => {
-        const anim = new Animation(
-          animName,
-          'rotationQuaternion',
-          track.fps,
-          Animation.ANIMATIONTYPE_QUATERNION,
-          Animation.ANIMATIONLOOPMODE_CONSTANT
-        );
-        anim.setKeys(
-          keys.map((k) => ({
-            frame: k.frame,
-            value: new Quaternion(k.q[0], k.q[1], k.q[2], k.q[3]),
-          }))
-        );
-        return anim;
-      };
-      group.addTargetedAnimation(makeAnim(`${name}_${style}_${boneName}`), bone);
-      const node = bone.getTransformNode();
-      if (node) {
-        if (!node.rotationQuaternion) node.rotationQuaternion = bind.clone();
-        group.addTargetedAnimation(makeAnim(`${name}_${style}_${boneName}_node`), node);
-      }
-    }
-    group.normalize(0, endFrame);
-    group.onAnimationGroupEndObservable.add(() => {
-      group.goToFrame(endFrame);
-      group.pause();
-    });
-    return group;
+  const driveSlamClip = (_style: HangStyle, t01: number) => {
+    stopLocoClips();
+    const group = anims.dunkTake;
+    if (!group) return;
+    const t = Math.max(0, Math.min(1, t01));
+    const frame = dunkTakeMeta ? hangFrame01(dunkTakeMeta, t) : t * group.to;
+    group.start(false, 1, 0, group.to);
+    group.goToFrame(frame);
+    group.pause();
+    applyGroupFrame(group, frame, bones);
+    flushPose();
   };
-
-  HANG_STYLES.forEach((style) => {
-    anims.slam[style] = buildSlamClip(style);
-  });
-
-  const applyBakedSlamFrame = (style: HangStyle, t01: number) => {
-    writeTrack(SLAM_TRACKS[style], t01);
-    const group = anims.slam[style];
-    if (group) {
-      const frame = slamTrackFrame(SLAM_TRACKS[style], t01);
-      if (!group.isPlaying) group.start(false, 1, 0, group.to);
-      group.goToFrame(frame);
-    }
-  };
-
-  let playingSlam: HangStyle | null = null;
-  let slamStartedMs = 0;
 
   const seekSlam = (style: HangStyle, t01: number) => {
-    stopLocoClips();
-    for (const [other, group] of Object.entries(anims.slam)) {
-      if (other !== style) group.stop();
-    }
-    playingSlam = style;
-    applyBakedSlamFrame(style, t01);
+    driveSlamClip(style, t01);
   };
 
   const playSlam = (style: HangStyle, t01?: number) => {
-    const group = anims.slam[style];
-    if (!group) return;
-    stopLocoClips();
-    if (t01 != null) {
-      seekSlam(style, t01);
-      return;
-    }
-    if (playingSlam !== style) {
-      for (const [other, otherGroup] of Object.entries(anims.slam)) {
-        if (other !== style) otherGroup.stop();
-      }
-      playingSlam = style;
-      slamStartedMs = performance.now();
-      group.start(false, 1, 0, group.to);
-    }
-    const elapsed = (performance.now() - slamStartedMs) / 1000;
-    const t = Math.min(1, elapsed / Math.max(0.08, SLAM_TRACKS[style].duration));
-    applyBakedSlamFrame(style, t);
+    if (!anims.dunkTake) return;
+    driveSlamClip(style, t01 ?? 1);
   };
 
   const poseReverseTwoHand = (intensity: number) => {
@@ -425,7 +390,7 @@ export async function createMixamoAthlete(
 
   const dispose = () => {
     stopClips();
-    Object.values(anims.slam).forEach((g) => g.dispose());
+    anims.dunkTake?.dispose();
     instance.animationGroups.forEach((g) => g.dispose());
     instance.skeletons.forEach((s) => s.dispose());
     instance.rootNodes.forEach((n) => n.dispose());
@@ -439,6 +404,8 @@ export async function createMixamoAthlete(
     bones,
     rest,
     anims,
+    dunkTakeName: dunkTakeMeta?.clipName ?? '',
+    dunkTakeMeta,
     basketball,
     playRun,
     playIdle,
