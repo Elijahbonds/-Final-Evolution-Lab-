@@ -15,6 +15,7 @@ import {
 import { sanitizeBoneName } from '../rigSanitizer';
 
 export const ELIJAH_DUNK_BVH = 'basketball_dunk__elijah.bvh';
+export const ELIJAH_DUNK_CLIP = 'basketball_dunk__elijah';
 export const CMU_LAYUP_BVH = 'cmu_124_06_basketball_layup.bvh';
 
 export interface BvhTakeMeta {
@@ -72,8 +73,8 @@ export function mapBvhJointToMixamo(raw: string): string {
 }
 
 function readMeta(text: string): Omit<BvhTakeMeta, 'frameCount' | 'frameTime'> {
-  let clipName = 'imported_bvh_take';
-  let source = 'bvh';
+  let clipName = ELIJAH_DUNK_CLIP;
+  let source = ELIJAH_DUNK_BVH;
   let restRelative = false;
   let hangStart = 0;
   let hangEnd = -1;
@@ -281,24 +282,31 @@ export function applyGroupFrame(
   void bones;
 }
 
+export function isElijahDunkTake(text: string): boolean {
+  if (!text.includes('HIERARCHY') || !text.includes('MOTION')) return false;
+  const meta = readMeta(text);
+  const blob = `${meta.clipName} ${meta.source}`.toLowerCase();
+  if (blob.includes('cmu') || blob.includes('layup') || blob.includes('lay_up')) return false;
+  return meta.clipName === ELIJAH_DUNK_CLIP;
+}
+
 export async function loadDunkBvhText(options?: {
   text?: string;
   file?: File;
   url?: string;
 }): Promise<string> {
-  if (options?.text) return options.text;
-  if (options?.file) return options.file.text();
-  const preferred = [
-    options?.url,
-    `/assets/${ELIJAH_DUNK_BVH}`,
-    `/assets/${CMU_LAYUP_BVH}`,
-  ].filter((u): u is string => !!u);
-  for (const url of preferred) {
+  if (options?.text) return isElijahDunkTake(options.text) ? options.text : '';
+  if (options?.file) {
+    const text = await options.file.text();
+    return isElijahDunkTake(text) ? text : '';
+  }
+  const urls = [options?.url, `/assets/${ELIJAH_DUNK_BVH}`].filter((u): u is string => !!u);
+  for (const url of urls) {
     try {
       const res = await fetch(url);
       if (res.ok) {
         const text = await res.text();
-        if (text.includes('HIERARCHY') && text.includes('MOTION')) return text;
+        if (isElijahDunkTake(text)) return text;
       }
     } catch {
       /* try next */

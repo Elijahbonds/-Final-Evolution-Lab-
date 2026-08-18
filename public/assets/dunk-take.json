@@ -1,8 +1,6 @@
 {
   "preferred": "basketball_dunk__elijah.bvh",
-  "fallback": "cmu_124_06_basketball_layup.bvh",
-  "clipNameWhenFallback": "cmu_124_06_basketball_layup",
-  "clipNameWhenElijah": "basketball_dunk__elijah",
+  "clipName": "basketball_dunk__elijah",
   "glbClips": ["Idle", "Walk", "Run", "TPose"],
-  "note": "Hang pose is the imported BVH AnimationGroup. It is not SLAM_CLIP_KEYS. FEL-unity was 404 from this token."
+  "note": "Hang pose is the imported Elijah BVH AnimationGroup. It is not SLAM_CLIP_KEYS. CMU 124_06 is not the hang body. FEL-unity was 404 from this token."
 }

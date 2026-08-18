@@ -19,7 +19,7 @@ import {
   VeniceDunkAttempt,
 } from '../src/core/VeniceDunkLoop';
 import { readFileSync } from 'node:fs';
-import { parseBvh, CMU_LAYUP_BVH, ELIJAH_DUNK_BVH } from '../src/lib/babylon/bvhRetarget';
+import { parseBvh, ELIJAH_DUNK_BVH, ELIJAH_DUNK_CLIP, isElijahDunkTake } from '../src/lib/babylon/bvhRetarget';
 import { VENICE_RESULT_COPY, caseMissSub } from '../src/core/veniceResultCopy';
 
 export interface TestResult {
@@ -383,27 +383,28 @@ export function runVeniceDunkLoopTests(): TestResult[] {
 
   {
     let bvhText = '';
-    let used = CMU_LAYUP_BVH;
     try {
       bvhText = readFileSync(new URL(`../public/assets/${ELIJAH_DUNK_BVH}`, import.meta.url), 'utf8');
-      used = ELIJAH_DUNK_BVH;
     } catch {
-      bvhText = readFileSync(new URL(`../public/assets/${CMU_LAYUP_BVH}`, import.meta.url), 'utf8');
+      bvhText = '';
     }
-    const parsed = parseBvh(bvhText);
-    const name = parsed.meta.clipName;
+    const parsed = bvhText ? parseBvh(bvhText) : null;
+    const name = parsed?.meta.clipName ?? '';
     const passed =
+      !!parsed &&
+      isElijahDunkTake(bvhText) &&
       parsed.frames.length > 20 &&
       parsed.joints.length > 10 &&
-      name !== 'SLAM_CLIP_KEYS' &&
+      name === ELIJAH_DUNK_CLIP &&
       !name.includes('SLAM_CLIP') &&
-      (name === 'basketball_dunk__elijah' || name === 'cmu_124_06_basketball_layup') &&
-      parsed.meta.hangEnd > parsed.meta.hangStart;
+      !name.includes('cmu');
     results.push({
-      name: 'Hang body is an imported mocap BVH take, not SLAM_CLIP_KEYS',
+      name: 'Hang body is basketball_dunk__elijah.bvh — CMU 124_06 is not BODY YES',
       passed,
-      actual: `file=${used} clip=${name} frames=${parsed.frames.length} joints=${parsed.joints.length} hang=${parsed.meta.hangStart}-${parsed.meta.hangEnd} src=${parsed.meta.source}`,
-      expected: 'clip_name basketball_dunk__elijah or cmu_124_06_basketball_layup; real frames, not Euler maps',
+      actual: parsed
+        ? `clip=${name} frames=${parsed.frames.length} joints=${parsed.joints.length} hang=${parsed.meta.hangStart}-${parsed.meta.hangEnd}`
+        : `missing public/assets/${ELIJAH_DUNK_BVH}; CMU lay-up is not the hang take`,
+      expected: 'clip_name basketball_dunk__elijah from FEL-unity, not cmu_124_06_basketball_layup',
     });
   }
 

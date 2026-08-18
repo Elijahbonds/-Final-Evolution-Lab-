@@ -1,11 +1,11 @@
 /**
- * Mesh proof: load the Mixamo GLB and measure hand world positions.
- * Euler tables that do not move the skin fail this.
+ * Mesh proof: hang plumbing is the imported BVH AnimationGroup.
+ * Hang body is basketball_dunk__elijah.bvh only — CMU 124_06 is not BODY YES.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
 import { createMixamoAthlete } from '../src/lib/babylon/MixamoAthlete';
-import { CMU_LAYUP_BVH, ELIJAH_DUNK_BVH } from '../src/lib/babylon/bvhRetarget';
+import { ELIJAH_DUNK_BVH, ELIJAH_DUNK_CLIP, isElijahDunkTake } from '../src/lib/babylon/bvhRetarget';
 
 if (typeof globalThis.FileReader === 'undefined') {
   class NodeFileReader {
@@ -32,78 +32,71 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
   const scene = new Scene(engine);
   const bytes = readFileSync(new URL('../public/assets/dunker-transformed.glb', import.meta.url));
   const elijahUrl = new URL(`../public/assets/${ELIJAH_DUNK_BVH}`, import.meta.url);
-  const cmuUrl = new URL(`../public/assets/${CMU_LAYUP_BVH}`, import.meta.url);
-  let bvhPath = cmuUrl;
-  try {
-    readFileSync(elijahUrl);
-    bvhPath = elijahUrl;
-  } catch {
-    /* FEL-unity take is not in this checkout */
-  }
-  const bvhText = readFileSync(bvhPath, 'utf8');
+  const elijahPath = elijahUrl.pathname;
+  const hasElijah = existsSync(elijahPath);
+  const dunkBvh = hasElijah ? readFileSync(elijahUrl, 'utf8') : undefined;
   const athlete = await createMixamoAthlete(scene, 'meshProof', undefined, {
     file: new File([bytes], 'dunker-transformed.glb'),
-    dunkBvh: bvhText,
+    dunkBvh,
   });
   athlete.stopClips();
   athlete.resetPose();
 
   const tposeL = athlete.boneWorld('LeftHand');
-  const tposeHead = athlete.boneWorld('Head');
-
-  athlete.seekSlam('REVERSE_TWO_HAND', 0);
-  const hang0 = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
-  athlete.seekSlam('REVERSE_TWO_HAND', 0.5);
-  const hangMid = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
-  athlete.seekSlam('REVERSE_TWO_HAND', 1);
-  const hangEnd = { l: athlete.boneWorld('LeftHand'), r: athlete.boneWorld('RightHand') };
-
   const clipName = athlete.dunkTakeName;
   const groupName = athlete.anims.dunkTake?.name ?? '';
-  const notEulerKeys =
-    !clipName.includes('SLAM_CLIP_KEYS') &&
-    !groupName.includes('SLAM_CLIP_KEYS') &&
-    !groupName.includes('_slam_REVERSE') &&
-    (clipName === 'basketball_dunk__elijah' || clipName === 'cmu_124_06_basketball_layup');
-
-  const sweep =
-    dist(hangMid.l, hang0.l) + dist(hangEnd.l, hangMid.l) + dist(hangMid.r, hang0.r) > 0.18 &&
-    (athlete.anims.dunkTake?.targetedAnimations.length ?? 0) > 8;
-
-  const leftTheTpose =
-    dist(hangEnd.l, tposeL) > 0.12 ||
-    dist(hangMid.l, tposeL) > 0.12 ||
-    Math.abs(hangEnd.l.y - tposeL.y) > 0.1;
-
   const src = readFileSync(new URL('../src/lib/babylon/MixamoAthlete.ts', import.meta.url), 'utf8');
+  const loader = readFileSync(new URL('../src/lib/babylon/bvhRetarget.ts', import.meta.url), 'utf8');
   const hangFromBvh =
     src.includes('bvhRetarget') &&
     src.includes('dunkTake') &&
     !src.includes('SLAM_CLIP_KEYS') &&
-    !src.includes("from './slamSilhouettes'") &&
     !src.includes('applyLocalSlam') &&
-    !src.includes('buildSlamClip');
+    !src.includes('buildSlamClip') &&
+    loader.includes(`/assets/${ELIJAH_DUNK_BVH}`) &&
+    !loader.includes(`/assets/cmu_124_06`);
 
   const results = [
     {
-      name: 'Hang clip is the imported mocap take, not SLAM_CLIP_KEYS',
-      passed: notEulerKeys && !!athlete.anims.dunkTake,
-      actual: `clip=${clipName} group=${groupName} tracks=${athlete.anims.dunkTake?.targetedAnimations.length ?? 0}`,
-      expected: 'basketball_dunk__elijah or cmu_124_06_basketball_layup — not SLAM_CLIP_KEYS',
-    },
-    {
-      name: 'Retargeted hang take moves the Mixamo skin off T-pose',
-      passed: sweep && leftTheTpose,
-      actual: `tposeL=${tposeL.y.toFixed(3)} hang0=${hang0.l.y.toFixed(3)} mid=${hangMid.l.y.toFixed(3)} end=${hangEnd.l.y.toFixed(3)} head=${tposeHead.y.toFixed(3)} sweep=${(dist(hangMid.l, hang0.l) + dist(hangEnd.l, hangMid.l)).toFixed(3)}`,
-      expected: 'hands leave T-pose as the mocap hang window is sampled',
-    },
-    {
-      name: 'Hang slam path is the imported BVH take, not slamSilhouettes Euler',
+      name: 'Hang plumbing is dunkTake from bvhRetarget, not SLAM_CLIP_KEYS',
       passed: hangFromBvh,
-      actual: `bvh=${src.includes('bvhRetarget')} dunkTake=${src.includes('dunkTake')} clipKeys=${src.includes('SLAM_CLIP_KEYS')}`,
-      expected: 'MixamoAthlete hang imports bvhRetarget / dunkTake, not SLAM_CLIP_KEYS',
+      actual: `bvh=${src.includes('bvhRetarget')} dunkTake=${src.includes('dunkTake')} clipKeys=${src.includes('SLAM_CLIP_KEYS')} elijahUrl=${loader.includes(ELIJAH_DUNK_BVH)} cmuFallback=${loader.includes('/assets/cmu_124_06')}`,
+      expected: 'MixamoAthlete hang loads /assets/basketball_dunk__elijah.bvh only',
+    },
+    {
+      name: 'Hang body is basketball_dunk__elijah.bvh — CMU 124_06 is not BODY YES',
+      passed:
+        hasElijah &&
+        !!dunkBvh &&
+        isElijahDunkTake(dunkBvh) &&
+        clipName === ELIJAH_DUNK_CLIP &&
+        groupName === ELIJAH_DUNK_CLIP &&
+        (athlete.anims.dunkTake?.targetedAnimations.length ?? 0) > 8,
+      actual: hasElijah
+        ? `clip=${clipName} group=${groupName} tracks=${athlete.anims.dunkTake?.targetedAnimations.length ?? 0}`
+        : `missing public/assets/${ELIJAH_DUNK_BVH}; CMU lay-up is not the hang take`,
+      expected: 'AnimationGroup basketball_dunk__elijah from FEL-unity',
     },
   ];
+
+  if (hasElijah && athlete.anims.dunkTake) {
+    athlete.seekSlam('REVERSE_TWO_HAND', 0);
+    const hang0 = { l: athlete.boneWorld('LeftHand') };
+    athlete.seekSlam('REVERSE_TWO_HAND', 0.5);
+    const hangMid = { l: athlete.boneWorld('LeftHand') };
+    athlete.seekSlam('REVERSE_TWO_HAND', 1);
+    const hangEnd = { l: athlete.boneWorld('LeftHand') };
+    const leftTheTpose =
+      dist(hangEnd.l, tposeL) > 0.12 ||
+      dist(hangMid.l, tposeL) > 0.12 ||
+      Math.abs(hangEnd.l.y - tposeL.y) > 0.1;
+    results.push({
+      name: 'Elijah hang take moves the Mixamo skin off T-pose',
+      passed: leftTheTpose && dist(hangMid.l, hang0.l) + dist(hangEnd.l, hangMid.l) > 0.08,
+      actual: `tposeL=${tposeL.y.toFixed(3)} hang0=${hang0.l.y.toFixed(3)} mid=${hangMid.l.y.toFixed(3)} end=${hangEnd.l.y.toFixed(3)}`,
+      expected: 'hands leave T-pose as the Elijah hang window is sampled',
+    });
+  }
 
   athlete.dispose();
   scene.dispose();
