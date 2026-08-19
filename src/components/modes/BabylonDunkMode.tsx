@@ -63,7 +63,11 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    const ctx = createBabylonContext(canvasRef.current, { previewSafe: true });
+    // The finished product is Unreal-reading Venice night — real sky/water
+    // shaders, rim spot, shadows, antialiasing. The previewSafe escape
+    // hatch flattened all of that to a beige/blue toy slab; it must be
+    // OFF for the actual dunk boot.
+    const ctx = createBabylonContext(canvasRef.current, { previewSafe: false });
     const { scene, shadowGenerator, camera, engine } = ctx;
     camera.detachControl();
 
@@ -99,12 +103,12 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
     const boot = async () => {
       try {
-        // Cheap procedural court renders first — court and athlete gameplay
-        // never wait on the Meshy mural, and the beige/blue slab is never
-        // an infinite spinner.
+        // Authored Venice night (real shaders, rim spot, fence) renders
+        // first — court and athlete gameplay never wait on the Meshy
+        // mural, so the night court is never an infinite spinner.
         const court = await buildVeniceNightCourt(scene, shadowGenerator, hoop, {
           spectators: false,
-          previewSafe: true,
+          previewSafe: false,
         });
         if (disposed || bootAborted || scene.isDisposed) {
           return;

@@ -108,7 +108,7 @@ export async function runMixamoSlamMeshTests(): Promise<Array<{ name: string; pa
         loader.includes('fetchLocalText') &&
         loader.includes('isRemoteAssetUrl') &&
         modeSrc.includes('spectators: false') &&
-        modeSrc.includes('previewSafe: true') &&
+        modeSrc.includes('previewSafe: false') &&
         modeSrc.includes('lockedTarget') &&
         modeSrc.includes('withTimeout') &&
         src.includes('anims.run.isPlaying') &&

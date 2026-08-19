@@ -27,11 +27,115 @@ import { directedFraming } from '../src/lib/babylon/veniceDunkCamera';
 import {
   fitMeshyPieceToFootprint,
   hideCheapVenicePrimitives,
+  isPlaceholderMeshyGlb,
   loadMeshyVeniceCourt,
   MeshyPiece,
   MESHY_COURT_GLB,
   MESHY_SURROUND_GLB,
+  MESHY_PLACEHOLDER_GENERATOR,
+  MESHY_PLACEHOLDER_MAX_BYTES,
 } from '../src/lib/babylon/VeniceNightCourt';
+
+/**
+ * Test-only fixture builder — never written to disk, never checked in.
+ * Mirrors scripts/gen-meshy-placeholder-glb.mjs's quad geometry but pads
+ * the BIN chunk with unreferenced padding so it clears
+ * MESHY_PLACEHOLDER_MAX_BYTES, and stamps a generator that is NOT
+ * FEL-meshy-placeholder — standing in for a real Meshy export (which this
+ * repo never has bytes for; git only ever holds the stub) so the
+ * scale-authority code path still has coverage without inventing fake
+ * shipped GLB bytes.
+ */
+function buildFakeRealMeshyGlb(opts: {
+  halfX: number;
+  halfZ: number;
+  color: [number, number, number, number];
+  name: string;
+  generator?: string;
+  padBytes?: number;
+}): ArrayBuffer {
+  const { halfX, halfZ, color, name } = opts;
+  const generator = opts.generator ?? 'test-real-meshy-export';
+  const padBytes = opts.padBytes ?? MESHY_PLACEHOLDER_MAX_BYTES + 1024;
+
+  const positions = new Float32Array([
+    -halfX, 0, -halfZ,
+    halfX, 0, -halfZ,
+    halfX, 0, halfZ,
+    -halfX, 0, halfZ,
+  ]);
+  const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+  const pad4 = (len: number) => (4 - (len % 4)) % 4;
+
+  const posBytes = new Uint8Array(positions.buffer);
+  const idxBytes = new Uint8Array(indices.buffer);
+  const idxPad = pad4(idxBytes.length);
+  const padding = new Uint8Array(padBytes);
+  const bin = new Uint8Array(posBytes.length + idxBytes.length + idxPad + padding.length);
+  bin.set(posBytes, 0);
+  bin.set(idxBytes, posBytes.length);
+  bin.set(padding, posBytes.length + idxBytes.length + idxPad);
+
+  const json = {
+    asset: { version: '2.0', generator },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { children: [1], name: `${name}Root` },
+      { mesh: 0, name: `${name}Mesh` },
+    ],
+    meshes: [
+      { name: `${name}Mesh`, primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }] },
+    ],
+    materials: [
+      {
+        name: `${name}Mat`,
+        pbrMetallicRoughness: { baseColorFactor: color, metallicFactor: 0, roughnessFactor: 1 },
+        doubleSided: true,
+      },
+    ],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 4, type: 'VEC3', min: [-halfX, 0, -halfZ], max: [halfX, 0, halfZ] },
+      { bufferView: 1, componentType: 5123, count: 6, type: 'SCALAR' },
+    ],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: posBytes.length, target: 34962 },
+      { buffer: 0, byteOffset: posBytes.length, byteLength: idxBytes.length, target: 34963 },
+    ],
+    buffers: [{ byteLength: bin.length }],
+  };
+
+  const jsonStr = JSON.stringify(json);
+  const jsonBytes = new TextEncoder().encode(jsonStr);
+  const jsonPad = pad4(jsonBytes.length);
+  const jsonChunkData = new Uint8Array(jsonBytes.length + jsonPad);
+  jsonChunkData.set(jsonBytes, 0);
+  jsonChunkData.fill(0x20, jsonBytes.length);
+
+  const jsonChunkHeader = new Uint8Array(8);
+  new DataView(jsonChunkHeader.buffer).setUint32(0, jsonChunkData.length, true);
+  new DataView(jsonChunkHeader.buffer).setUint32(4, 0x4e4f534a, true);
+
+  const binChunkHeader = new Uint8Array(8);
+  new DataView(binChunkHeader.buffer).setUint32(0, bin.length, true);
+  new DataView(binChunkHeader.buffer).setUint32(4, 0x004e4942, true);
+
+  const totalLength = 12 + jsonChunkHeader.length + jsonChunkData.length + binChunkHeader.length + bin.length;
+  const header = new Uint8Array(12);
+  const headerView = new DataView(header.buffer);
+  headerView.setUint32(0, 0x46546c67, true);
+  headerView.setUint32(4, 2, true);
+  headerView.setUint32(8, totalLength, true);
+
+  const out = new Uint8Array(totalLength);
+  let off = 0;
+  out.set(header, off); off += header.length;
+  out.set(jsonChunkHeader, off); off += jsonChunkHeader.length;
+  out.set(jsonChunkData, off); off += jsonChunkData.length;
+  out.set(binChunkHeader, off); off += binChunkHeader.length;
+  out.set(bin, off);
+  return out.buffer;
+}
 
 export async function runMeshyVeniceCourtTests(): Promise<
   Array<{ name: string; passed: boolean; actual: string; expected: string }>
@@ -45,8 +149,25 @@ export async function runMeshyVeniceCourtTests(): Promise<
   });
   void court;
 
-  const courtBytes = readFileSync(new URL(`../public/assets/${MESHY_COURT_GLB}`, import.meta.url));
-  const surroundBytes = readFileSync(new URL(`../public/assets/${MESHY_SURROUND_GLB}`, import.meta.url));
+  // Git never holds real Meshy bytes — the checked-in venice-blue-court.glb
+  // / venice-court-surround.glb are the FEL-meshy-placeholder stub (see the
+  // dedicated placeholder-detection tests below). To still exercise the
+  // scale-authority code path (fit-to-footprint, worldScale, hideCheap) a
+  // synthetic "real export" fixture is built in-memory only — never written
+  // to disk, never shipped — standing in for a human-uploaded Meshy export
+  // at ~2.6x the regulation footprint.
+  const courtBytes = buildFakeRealMeshyGlb({
+    halfX: 20,
+    halfZ: 20 * (28 / 15.2),
+    color: [0.05, 0.3, 0.62, 1.0],
+    name: 'MeshyVeniceCourt',
+  });
+  const surroundBytes = buildFakeRealMeshyGlb({
+    halfX: 60,
+    halfZ: 60,
+    color: [0.42, 0.38, 0.3, 1.0],
+    name: 'MeshyVeniceSurround',
+  });
   const courtFile = new File([courtBytes], MESHY_COURT_GLB);
   const surroundFile = new File([surroundBytes], MESHY_SURROUND_GLB);
 
@@ -66,9 +187,10 @@ export async function runMeshyVeniceCourtTests(): Promise<
   const surroundBounds = meshy.surround?.root.getHierarchyBoundingVectors();
   const surroundWidth = surroundBounds ? surroundBounds.max.x - surroundBounds.min.x : 0;
 
-  // This fixture ships ~2.6x bigger than the regulation 15.2x28 footprint —
-  // a rich Meshy export, not a toy slab. It must NOT be shrunk down to fit;
-  // it keeps its own native size and worldScale reports how much bigger.
+  // This synthetic "real export" fixture ships ~2.6x bigger than the
+  // regulation 15.2x28 footprint — standing in for a rich Meshy export,
+  // not a toy slab. It must NOT be shrunk down to fit; it keeps its own
+  // native size and worldScale reports how much bigger.
   const loadedAndNotShrunk =
     meshy.courtLoaded &&
     meshy.surroundLoaded &&
@@ -111,6 +233,70 @@ export async function runMeshyVeniceCourtTests(): Promise<
   } catch {
     failSafeThrew = true;
   }
+
+  // The CHECKED-IN git fixtures are the FEL-meshy-placeholder stub — a
+  // 928B/912B single-quad fixture, not a textured mural. Loading them for
+  // real (through the same File + attachMeshyPiece path PLACE uses) must
+  // fail safe exactly like a missing file: courtLoaded/surroundLoaded
+  // false, worldScale 1, and — critically — hideCheapVenicePrimitives must
+  // NOT strip the authored sky/ocean/fence/bleachers just because a stub
+  // quad technically "loaded". This is the PLACE bug: a 928B stub must
+  // never be trusted as scale authority.
+  const realCourtBytes = readFileSync(new URL(`../public/assets/${MESHY_COURT_GLB}`, import.meta.url));
+  const realSurroundBytes = readFileSync(new URL(`../public/assets/${MESHY_SURROUND_GLB}`, import.meta.url));
+  const placeholderScene = new Scene(engine);
+  const placeholderCourt = await buildVeniceNightCourt(placeholderScene, undefined, hoop, {
+    spectators: false,
+    previewSafe: true,
+  });
+  void placeholderCourt;
+  const placeholderMeshy = await loadMeshyVeniceCourt(placeholderScene, {
+    courtWidth: 15.2,
+    courtDepth: 28,
+    surroundWidth: 60,
+    surroundDepth: 60,
+    courtCenterZ: 5.0,
+    courtFile: new File([realCourtBytes], MESHY_COURT_GLB),
+    surroundFile: new File([realSurroundBytes], MESHY_SURROUND_GLB),
+  });
+  hideCheapVenicePrimitives(placeholderScene, {
+    court: placeholderMeshy.courtLoaded,
+    surround: placeholderMeshy.surroundLoaded,
+  });
+  const placeholderFailsSafe =
+    placeholderMeshy.courtLoaded === false &&
+    placeholderMeshy.surroundLoaded === false &&
+    placeholderMeshy.worldScale === 1;
+  const authoredVeniceStaysUp =
+    placeholderScene.getMeshByName('venice_sky')?.isEnabled() === true &&
+    placeholderScene.getMeshByName('venice_ocean')?.isEnabled() === true &&
+    placeholderScene.getMeshByName('venice_court')?.isEnabled() === true &&
+    placeholderScene.getMeshByName('fence_l')?.isEnabled() === true &&
+    placeholderScene.getMeshByName('bleacher_row_0')?.isEnabled() === true;
+  placeholderMeshy.dispose();
+  placeholderScene.dispose();
+
+  // Byte-level sniff, independent of the SceneLoader round-trip above: the
+  // actual checked-in files carry the FEL-meshy-placeholder generator tag,
+  // and are also small enough to be caught by size alone.
+  const gitCourtIsPlaceholder = isPlaceholderMeshyGlb(
+    realCourtBytes.buffer.slice(realCourtBytes.byteOffset, realCourtBytes.byteOffset + realCourtBytes.byteLength)
+  );
+  const gitSurroundIsPlaceholder = isPlaceholderMeshyGlb(
+    realSurroundBytes.buffer.slice(realSurroundBytes.byteOffset, realSurroundBytes.byteOffset + realSurroundBytes.byteLength)
+  );
+  const fakeRealBytes = buildFakeRealMeshyGlb({ halfX: 20, halfZ: 20, color: [0, 0, 0, 1], name: 'Fake' });
+  const fakeRealIsNotPlaceholder = !isPlaceholderMeshyGlb(fakeRealBytes);
+  const tinyButRightGeneratorIsStillPlaceholder = isPlaceholderMeshyGlb(
+    buildFakeRealMeshyGlb({
+      halfX: 1,
+      halfZ: 1,
+      color: [0, 0, 0, 1],
+      name: 'Tiny',
+      generator: 'a-real-vendor-exporter',
+      padBytes: 0,
+    })
+  );
 
   // The mural's mesh is never rescaled — a tiny/degenerate export stays at
   // its OWN native size (recenter + floor-align only), while the RETURNED
@@ -283,6 +469,24 @@ export async function runMeshyVeniceCourtTests(): Promise<
       passed: meshyLoaderIsInVeniceNightCourt,
       actual: `wired=${meshyLoaderIsInVeniceNightCourt}`,
       expected: 'loadMeshyVeniceCourt / fitMeshyPieceToFootprint / hideCheapVenicePrimitives are all exported from VeniceNightCourt.ts',
+    },
+    {
+      name: 'The checked-in placeholder GLBs are detected by generator tag + size and never treated as a mural',
+      passed: gitCourtIsPlaceholder && gitSurroundIsPlaceholder && fakeRealIsNotPlaceholder && tinyButRightGeneratorIsStillPlaceholder,
+      actual: `courtBytes=${realCourtBytes.byteLength} courtIsPlaceholder=${gitCourtIsPlaceholder} surroundBytes=${realSurroundBytes.byteLength} surroundIsPlaceholder=${gitSurroundIsPlaceholder} fakeRealDetectedAsPlaceholder=${!fakeRealIsNotPlaceholder} tinyRealGeneratorStillCaught=${tinyButRightGeneratorIsStillPlaceholder}`,
+      expected: `checked-in files (<= ${MESHY_PLACEHOLDER_MAX_BYTES}B, generator=${MESHY_PLACEHOLDER_GENERATOR}) are placeholders; a padded synthetic export with a different generator is not; a tiny file is still caught by size alone`,
+    },
+    {
+      name: 'Loading ONLY the checked-in placeholder GLBs fails safe: no mural, worldScale 1, authored Venice night stays up',
+      passed: placeholderFailsSafe && authoredVeniceStaysUp,
+      actual: `courtLoaded=${placeholderMeshy.courtLoaded} surroundLoaded=${placeholderMeshy.surroundLoaded} worldScale=${placeholderMeshy.worldScale} authoredVeniceStaysUp=${authoredVeniceStaysUp}`,
+      expected: 'placeholder GLBs never attach as a mural; hideCheapVenicePrimitives never runs; sky/ocean/court/fence/bleachers stay enabled — no 2.6x stub quad',
+    },
+    {
+      name: 'The finished dunk boot is not previewSafe — real shaders/rim spot/shadows, not the cheap-preview escape hatch',
+      passed: modeSrc.includes('previewSafe: false') && !modeSrc.includes('previewSafe: true'),
+      actual: `hasFalse=${modeSrc.includes('previewSafe: false')} hasTrue=${modeSrc.includes('previewSafe: true')}`,
+      expected: 'BabylonDunkMode boots createBabylonContext/buildVeniceNightCourt with previewSafe: false',
     },
   ];
 

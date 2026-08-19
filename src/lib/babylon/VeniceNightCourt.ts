@@ -73,6 +73,59 @@ export interface MeshyVeniceCourt {
   dispose: () => void;
 }
 
+/**
+ * `asset.generator` tag the repo's own placeholder-fixture writer
+ * (scripts/gen-meshy-placeholder-glb.mjs) stamps onto the checked-in
+ * venice-blue-court.glb / venice-court-surround.glb stubs. Git never holds
+ * real Meshy bytes — the live mural only exists inside Studio — so this
+ * string is the one reliable signature that says "this is the stub, not an
+ * export a human uploaded".
+ */
+export const MESHY_PLACEHOLDER_GENERATOR = 'FEL-meshy-placeholder';
+
+/**
+ * A real Meshy export ships full geometry + textures; the checked-in stubs
+ * are hand-built single-quad fixtures under 1KB. Anything at or below this
+ * ceiling cannot be a textured mural no matter what its generator tag says,
+ * so a byte-count sniff alone is enough to catch a corrupted/truncated
+ * "real" file the generator check would otherwise miss.
+ */
+export const MESHY_PLACEHOLDER_MAX_BYTES = 8192;
+
+/**
+ * Reads the `asset.generator` string out of a glTF-binary (.glb) buffer's
+ * JSON chunk without needing the SceneLoader. Returns null for anything
+ * that is not a well-formed glTF-binary container — callers treat that as
+ * "cannot prove it's a placeholder", never as a reason to reject a real file.
+ */
+function readGlbGenerator(bytes: ArrayBuffer): string | null {
+  if (bytes.byteLength < 20) return null;
+  const view = new DataView(bytes);
+  if (view.getUint32(0, true) !== 0x46546c67) return null; // magic 'glTF'
+  const jsonChunkLength = view.getUint32(12, true);
+  const jsonChunkType = view.getUint32(16, true);
+  if (jsonChunkType !== 0x4e4f534a) return null; // first chunk must be 'JSON'
+  if (20 + jsonChunkLength > bytes.byteLength) return null;
+  try {
+    const jsonBytes = new Uint8Array(bytes, 20, jsonChunkLength);
+    const json = JSON.parse(new TextDecoder().decode(jsonBytes)) as { asset?: { generator?: string } };
+    return json.asset?.generator ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The placeholder must never be mistaken for a real Meshy mural: not a
+ * scale authority, not a reason to hide the authored cheap-Venice sky /
+ * ocean / fence. Detected by either the FEL-meshy-placeholder generator
+ * stamp or by being too small to hold real geometry + textures.
+ */
+export function isPlaceholderMeshyGlb(bytes: ArrayBuffer): boolean {
+  if (bytes.byteLength <= MESHY_PLACEHOLDER_MAX_BYTES) return true;
+  return readGlbGenerator(bytes) === MESHY_PLACEHOLDER_GENERATOR;
+}
+
 async function loadMeshyFile(filename: string): Promise<File> {
   const bytes = await fetchLocalBytes(localAssetUrl(filename), MESHY_LOAD_TIMEOUT_MS);
   return new File([bytes], filename);
@@ -97,6 +150,17 @@ async function attachMeshyPiece(
   const file = fileOverride ?? (await loadMeshyFile(filename));
   if (scene.isDisposed) {
     throw new Error(`${rootName} scene disposed`);
+  }
+
+  // Sniff the raw bytes BEFORE ever handing them to the SceneLoader. Git
+  // only ever holds the checked-in FEL-meshy-placeholder stub — attaching
+  // it and letting fitMeshyPieceToFootprint measure it produces the
+  // "2.63x scale, giant blue quad" bug: a stub is not a mural, and must
+  // resolve exactly like a failed fetch (courtLoaded/surroundLoaded false,
+  // cheap authored court/surround stay up).
+  const bytes = await file.arrayBuffer();
+  if (isPlaceholderMeshyGlb(bytes)) {
+    throw new Error(`${rootName} is the FEL-meshy-placeholder stub, not a real Meshy export`);
   }
 
   let activePlugin: { dispose?: () => void } | undefined;
@@ -210,14 +274,16 @@ export function fitMeshyPieceToFootprint(
 }
 
 /**
- * The Meshy mural is the scale authority, not the cheap procedural slab.
- * Loads court + surround as Files through the real glTF SceneLoader on the
- * LIVE scene, recenters each at its OWN native scale (never rescaled), and
- * reports worldScale so hoop, backboard, post, and camera can be authored
- * against the mural's own bounds instead of forcing the mural to match a
- * small assumed footprint. Best-effort: any failure (timeout, missing
- * file, disposed scene) resolves with courtLoaded / surroundLoaded false —
- * it never throws, and never disposes the scene.
+ * The Meshy mural is the scale authority, not the cheap procedural slab —
+ * but ONLY once it is proven to be a real export. Loads court + surround
+ * as Files through the real glTF SceneLoader on the LIVE scene, recenters
+ * each at its OWN native scale (never rescaled), and reports worldScale so
+ * hoop, backboard, post, and camera can be authored against the mural's
+ * own bounds instead of forcing the mural to match a small assumed
+ * footprint. Best-effort: any failure (timeout, missing file, disposed
+ * scene, or the checked-in FEL-meshy-placeholder stub — see
+ * isPlaceholderMeshyGlb) resolves with courtLoaded / surroundLoaded false
+ * — it never throws, and never disposes the scene.
  */
 export async function loadMeshyVeniceCourt(
   scene: Scene,
