@@ -74,17 +74,15 @@ export interface MeshyVeniceCourt {
 }
 
 /**
- * `asset.generator` tag the repo's own placeholder-fixture writer
- * (scripts/gen-meshy-placeholder-glb.mjs) stamps onto the checked-in
- * venice-blue-court.glb / venice-court-surround.glb stubs. Git never holds
- * real Meshy bytes — the live mural only exists inside Studio — so this
- * string is the one reliable signature that says "this is the stub, not an
- * export a human uploaded".
+ * `asset.generator` tag stamped onto FEL-meshy-placeholder stubs. Git
+ * never holds Meshy bytes — the live mural only exists inside Studio —
+ * so this string is the one reliable signature that says "this is the
+ * stub, not an export a human uploaded".
  */
 export const MESHY_PLACEHOLDER_GENERATOR = 'FEL-meshy-placeholder';
 
 /**
- * A real Meshy export ships full geometry + textures; the checked-in stubs
+ * A real Meshy export ships full geometry + textures; placeholder stubs
  * are hand-built single-quad fixtures under 1KB. Anything at or below this
  * ceiling cannot be a textured mural no matter what its generator tag says,
  * so a byte-count sniff alone is enough to catch a corrupted/truncated
@@ -152,12 +150,12 @@ async function attachMeshyPiece(
     throw new Error(`${rootName} scene disposed`);
   }
 
-  // Sniff the raw bytes BEFORE ever handing them to the SceneLoader. Git
-  // only ever holds the checked-in FEL-meshy-placeholder stub — attaching
-  // it and letting fitMeshyPieceToFootprint measure it produces the
-  // "2.63x scale, giant blue quad" bug: a stub is not a mural, and must
-  // resolve exactly like a failed fetch (courtLoaded/surroundLoaded false,
-  // cheap authored court/surround stay up).
+  // Sniff the raw bytes BEFORE ever handing them to the SceneLoader. A
+  // FEL-meshy-placeholder stub must never attach — measuring it in
+  // fitMeshyPieceToFootprint produces the "2.63x scale, giant blue quad"
+  // bug: a stub is not a mural, and must resolve exactly like a failed
+  // fetch (courtLoaded/surroundLoaded false, cheap authored court/surround
+  // stay up). Git must not ship these stubs; Studio holds the live mural.
   const bytes = await file.arrayBuffer();
   if (isPlaceholderMeshyGlb(bytes)) {
     throw new Error(`${rootName} is the FEL-meshy-placeholder stub, not a real Meshy export`);
@@ -281,9 +279,9 @@ export function fitMeshyPieceToFootprint(
  * hoop, backboard, post, and camera can be authored against the mural's
  * own bounds instead of forcing the mural to match a small assumed
  * footprint. Best-effort: any failure (timeout, missing file, disposed
- * scene, or the checked-in FEL-meshy-placeholder stub — see
- * isPlaceholderMeshyGlb) resolves with courtLoaded / surroundLoaded false
- * — it never throws, and never disposes the scene.
+ * scene, or an FEL-meshy-placeholder stub — see isPlaceholderMeshyGlb)
+ * resolves with courtLoaded / surroundLoaded false — it never throws,
+ * and never disposes the scene.
  */
 export async function loadMeshyVeniceCourt(
   scene: Scene,
