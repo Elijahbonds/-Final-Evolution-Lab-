@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Play, Sparkles,
@@ -49,10 +49,20 @@ export type ActiveSportMode =
 
 interface ModeManagerProps {
   initialMode?: ActiveSportMode;
+  /**
+   * Lets the shell (App) know which mode is live so it can get its own
+   * chrome (padding, max-width) out of the way for full-bleed 3D modes
+   * without ModeManager needing to know anything about the shell.
+   */
+  onModeChange?: (mode: ActiveSportMode) => void;
 }
 
-export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'babylon_dunk' }) => {
+export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'babylon_dunk', onModeChange }) => {
   const [activeMode, setActiveMode] = useState<ActiveSportMode>(initialMode);
+
+  useEffect(() => {
+    onModeChange?.(activeMode);
+  }, [activeMode, onModeChange]);
 
   return (
     <div className="w-full space-y-6">
