@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Live Meshy lives in Google AI Studio /assets only. Git must never ship
+# these filenames — neither an FEL-meshy-placeholder stub nor a mural.
+public/assets/venice-blue-court.glb
+public/assets/venice-court-surround.glb

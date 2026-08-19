@@ -38,13 +38,13 @@ import {
 
 /**
  * Test-only fixture builder — never written to disk, never checked in.
- * Mirrors scripts/gen-meshy-placeholder-glb.mjs's quad geometry but pads
- * the BIN chunk with unreferenced padding so it clears
- * MESHY_PLACEHOLDER_MAX_BYTES, and stamps a generator that is NOT
+ * Mirrors the historical placeholder-quad geometry. With padBytes it
+ * clears MESHY_PLACEHOLDER_MAX_BYTES and stamps a generator that is NOT
  * FEL-meshy-placeholder — standing in for a real Meshy export (which this
- * repo never has bytes for; git only ever holds the stub) so the
+ * repo never has bytes for; Studio holds the live mural) so the
  * scale-authority code path still has coverage without inventing fake
- * shipped GLB bytes.
+ * shipped GLB bytes. With padBytes: 0 and the placeholder generator it
+ * is the in-memory stub the refuse-safe tests feed to the loader.
  */
 function buildFakeRealMeshyGlb(opts: {
   halfX: number;
@@ -149,13 +149,11 @@ export async function runMeshyVeniceCourtTests(): Promise<
   });
   void court;
 
-  // Git never holds real Meshy bytes — the checked-in venice-blue-court.glb
-  // / venice-court-surround.glb are the FEL-meshy-placeholder stub (see the
-  // dedicated placeholder-detection tests below). To still exercise the
-  // scale-authority code path (fit-to-footprint, worldScale, hideCheap) a
-  // synthetic "real export" fixture is built in-memory only — never written
-  // to disk, never shipped — standing in for a human-uploaded Meshy export
-  // at ~2.6x the regulation footprint.
+  // Git never holds Meshy bytes — Studio holds the live mural. To still
+  // exercise the scale-authority code path (fit-to-footprint, worldScale,
+  // hideCheap) a synthetic "real export" fixture is built in-memory only —
+  // never written to disk, never shipped — standing in for a human-uploaded
+  // Meshy export at ~2.6x the regulation footprint.
   const courtBytes = buildFakeRealMeshyGlb({
     halfX: 20,
     halfZ: 20 * (28 / 15.2),
@@ -234,16 +232,30 @@ export async function runMeshyVeniceCourtTests(): Promise<
     failSafeThrew = true;
   }
 
-  // The CHECKED-IN git fixtures are the FEL-meshy-placeholder stub — a
-  // 928B/912B single-quad fixture, not a textured mural. Loading them for
+  // In-memory FEL-meshy-placeholder stubs — the same ~1KB single-quad
+  // fixture git used to ship, never written to disk. Loading them for
   // real (through the same File + attachMeshyPiece path PLACE uses) must
   // fail safe exactly like a missing file: courtLoaded/surroundLoaded
   // false, worldScale 1, and — critically — hideCheapVenicePrimitives must
   // NOT strip the authored sky/ocean/fence/bleachers just because a stub
   // quad technically "loaded". This is the PLACE bug: a 928B stub must
   // never be trusted as scale authority.
-  const realCourtBytes = readFileSync(new URL(`../public/assets/${MESHY_COURT_GLB}`, import.meta.url));
-  const realSurroundBytes = readFileSync(new URL(`../public/assets/${MESHY_SURROUND_GLB}`, import.meta.url));
+  const placeholderCourtBytes = buildFakeRealMeshyGlb({
+    halfX: 20,
+    halfZ: 20 * (28 / 15.2),
+    color: [0.05, 0.3, 0.62, 1.0],
+    name: 'MeshyVeniceCourt',
+    generator: MESHY_PLACEHOLDER_GENERATOR,
+    padBytes: 0,
+  });
+  const placeholderSurroundBytes = buildFakeRealMeshyGlb({
+    halfX: 60,
+    halfZ: 60,
+    color: [0.42, 0.38, 0.3, 1.0],
+    name: 'MeshyVeniceSurround',
+    generator: MESHY_PLACEHOLDER_GENERATOR,
+    padBytes: 0,
+  });
   const placeholderScene = new Scene(engine);
   const placeholderCourt = await buildVeniceNightCourt(placeholderScene, undefined, hoop, {
     spectators: false,
@@ -256,8 +268,8 @@ export async function runMeshyVeniceCourtTests(): Promise<
     surroundWidth: 60,
     surroundDepth: 60,
     courtCenterZ: 5.0,
-    courtFile: new File([realCourtBytes], MESHY_COURT_GLB),
-    surroundFile: new File([realSurroundBytes], MESHY_SURROUND_GLB),
+    courtFile: new File([placeholderCourtBytes], MESHY_COURT_GLB),
+    surroundFile: new File([placeholderSurroundBytes], MESHY_SURROUND_GLB),
   });
   hideCheapVenicePrimitives(placeholderScene, {
     court: placeholderMeshy.courtLoaded,
@@ -277,14 +289,10 @@ export async function runMeshyVeniceCourtTests(): Promise<
   placeholderScene.dispose();
 
   // Byte-level sniff, independent of the SceneLoader round-trip above: the
-  // actual checked-in files carry the FEL-meshy-placeholder generator tag,
-  // and are also small enough to be caught by size alone.
-  const gitCourtIsPlaceholder = isPlaceholderMeshyGlb(
-    realCourtBytes.buffer.slice(realCourtBytes.byteOffset, realCourtBytes.byteOffset + realCourtBytes.byteLength)
-  );
-  const gitSurroundIsPlaceholder = isPlaceholderMeshyGlb(
-    realSurroundBytes.buffer.slice(realSurroundBytes.byteOffset, realSurroundBytes.byteOffset + realSurroundBytes.byteLength)
-  );
+  // in-memory stub carries the FEL-meshy-placeholder generator tag and is
+  // also small enough to be caught by size alone.
+  const gitCourtIsPlaceholder = isPlaceholderMeshyGlb(placeholderCourtBytes);
+  const gitSurroundIsPlaceholder = isPlaceholderMeshyGlb(placeholderSurroundBytes);
   const fakeRealBytes = buildFakeRealMeshyGlb({ halfX: 20, halfZ: 20, color: [0, 0, 0, 1], name: 'Fake' });
   const fakeRealIsNotPlaceholder = !isPlaceholderMeshyGlb(fakeRealBytes);
   const tinyButRightGeneratorIsStillPlaceholder = isPlaceholderMeshyGlb(
@@ -471,13 +479,13 @@ export async function runMeshyVeniceCourtTests(): Promise<
       expected: 'loadMeshyVeniceCourt / fitMeshyPieceToFootprint / hideCheapVenicePrimitives are all exported from VeniceNightCourt.ts',
     },
     {
-      name: 'The checked-in placeholder GLBs are detected by generator tag + size and never treated as a mural',
+      name: 'In-memory placeholder GLBs are detected by generator tag + size and never treated as a mural',
       passed: gitCourtIsPlaceholder && gitSurroundIsPlaceholder && fakeRealIsNotPlaceholder && tinyButRightGeneratorIsStillPlaceholder,
-      actual: `courtBytes=${realCourtBytes.byteLength} courtIsPlaceholder=${gitCourtIsPlaceholder} surroundBytes=${realSurroundBytes.byteLength} surroundIsPlaceholder=${gitSurroundIsPlaceholder} fakeRealDetectedAsPlaceholder=${!fakeRealIsNotPlaceholder} tinyRealGeneratorStillCaught=${tinyButRightGeneratorIsStillPlaceholder}`,
-      expected: `checked-in files (<= ${MESHY_PLACEHOLDER_MAX_BYTES}B, generator=${MESHY_PLACEHOLDER_GENERATOR}) are placeholders; a padded synthetic export with a different generator is not; a tiny file is still caught by size alone`,
+      actual: `courtBytes=${placeholderCourtBytes.byteLength} courtIsPlaceholder=${gitCourtIsPlaceholder} surroundBytes=${placeholderSurroundBytes.byteLength} surroundIsPlaceholder=${gitSurroundIsPlaceholder} fakeRealDetectedAsPlaceholder=${!fakeRealIsNotPlaceholder} tinyRealGeneratorStillCaught=${tinyButRightGeneratorIsStillPlaceholder}`,
+      expected: `in-memory stubs (<= ${MESHY_PLACEHOLDER_MAX_BYTES}B, generator=${MESHY_PLACEHOLDER_GENERATOR}) are placeholders; a padded synthetic export with a different generator is not; a tiny file is still caught by size alone`,
     },
     {
-      name: 'Loading ONLY the checked-in placeholder GLBs fails safe: no mural, worldScale 1, authored Venice night stays up',
+      name: 'Loading ONLY in-memory placeholder GLBs fails safe: no mural, worldScale 1, authored Venice night stays up',
       passed: placeholderFailsSafe && authoredVeniceStaysUp,
       actual: `courtLoaded=${placeholderMeshy.courtLoaded} surroundLoaded=${placeholderMeshy.surroundLoaded} worldScale=${placeholderMeshy.worldScale} authoredVeniceStaysUp=${authoredVeniceStaysUp}`,
       expected: 'placeholder GLBs never attach as a mural; hideCheapVenicePrimitives never runs; sky/ocean/court/fence/bleachers stay enabled — no 2.6x stub quad',
