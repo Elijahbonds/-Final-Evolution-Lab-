@@ -1705,6 +1705,60 @@ export class SoundJuice {
     osc.stop(ctx.currentTime + 0.2);
   }
 
+  /**
+   * Generic reward/unlock chime shared across modes (PRQ level-up, shard
+   * payout, mastery unlock). Stubbed ahead of the Studio Kart/Karate merge
+   * so a leftover `SoundJuice.playReward(...)` call resolves at compile
+   * time instead of failing tsc with a missing-member error.
+   */
+  static playReward() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const notes = [523.25, 659.25, 880, 1046.5];
+    notes.forEach((freq, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.07);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime + idx * 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.07 + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + idx * 0.07);
+      osc.stop(ctx.currentTime + idx * 0.07 + 0.3);
+    });
+  }
+
+  /**
+   * Crowd cheer stinger. Stubbed ahead of the Studio Kart/Karate merge so a
+   * leftover `SoundJuice.playCrowdCheer(...)` call resolves at compile time
+   * instead of failing tsc with a missing-member error. Reuses the shared
+   * reward chime — no new audio behavior invented.
+   */
+  static playCrowdCheer() {
+    this.playReward();
+  }
+
+  /**
+   * Gymnastics landing success cue. Stubbed ahead of the Studio Kart/Karate
+   * merge so a leftover `SoundJuice.playGymnasticSuccess(...)` call resolves
+   * at compile time instead of failing tsc with a missing-member error.
+   * Reuses the shared reward chime — no new audio behavior invented.
+   */
+  static playGymnasticSuccess() {
+    this.playReward();
+  }
+
+  /**
+   * Catch/thud impact cue. Stubbed ahead of the Studio Kart/Karate merge so
+   * a leftover `SoundJuice.playCatchThud(...)` call resolves at compile time
+   * instead of failing tsc with a missing-member error. Reuses the shared
+   * reward chime — no new audio behavior invented.
+   */
+  static playCatchThud() {
+    this.playReward();
+  }
+
   static playBuzzer() {
     const ctx = this.getContext();
     if (!ctx) return;

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Activity, Play, Zap, Shield, Flame, 
-  Dribbble, Swords, CircleDot, Radio, ArrowRight, 
-  ChevronRight, Gauge, 
+  Dribbble, Swords, CircleDot, ArrowRight, 
+  ChevronRight, Radio,
   Volume2, VolumeX, Compass, Layers, Cpu, HeartPulse
 } from 'lucide-react';
 
@@ -328,7 +328,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLab, onOpenDisclaimer }
               <div className="flex items-center gap-2">
                 <span className="font-orbitron font-black text-sm tracking-wider text-white">FINAL EVOLUTION</span>
                 <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-[#00F2FF]/10 text-[#00F2FF] border border-[#00F2FF]/30">
-                  v5.7 SOVEREIGN
+                  VENICE NIGHT COURT
                 </span>
               </div>
               <p className="text-[10px] font-mono text-zinc-400 hidden sm:block">
@@ -427,8 +427,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLab, onOpenDisclaimer }
           </h1>
 
           <p className="text-zinc-300 text-sm sm:text-base lg:text-lg max-w-2xl mx-auto leading-relaxed font-normal">
-            Real-time biometric assessment at the <strong className="text-[#00F2FF] font-medium">16.6ms Clinical Standard</strong>. 
-            Mocap-driven avatars, 10 sport disciplines, and the definitive <strong className="text-white">Bonds Standard</strong> for reactive ground contact time.
+            Venice Beach night-court dunk loop built on real-time biomechanics. <strong className="text-[#00F2FF] font-medium">164 ms GCT</strong>,
+            <strong className="text-white"> 4.8x BW elastic recoil</strong>, and the definitive Bonds Standard for reactive ground contact time.
           </p>
 
           {/* Quick Action Bar */}
@@ -441,30 +441,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLab, onOpenDisclaimer }
               className="px-8 py-4 rounded-2xl bg-[#00F2FF] text-black font-orbitron font-black text-sm tracking-wider hover:bg-[#00F2FF]/90 transition-all shadow-[0_0_35px_rgba(0,242,255,0.4)] active:scale-95 flex items-center gap-3 cursor-pointer"
             >
               <Swords className="w-4 h-4 text-black" />
-              <span>ENTER 3D ARENA</span>
+              <span>ENTER VENICE COURT</span>
               <ArrowRight className="w-4 h-4 text-black" />
-            </button>
-
-            <button
-              onClick={() => {
-                playSynthChime(500, 'triangle', 0.15);
-                onOpenLab('dashboard');
-              }}
-              className="px-6 py-4 rounded-2xl bg-white/5 hover:bg-white/10 text-white border border-white/15 font-orbitron font-bold text-sm tracking-wider transition-all backdrop-blur-md hover:border-[#00F2FF]/50 active:scale-95 flex items-center gap-2 cursor-pointer"
-            >
-              <Gauge className="w-4 h-4 text-[#00F2FF]" />
-              <span>PERFORMANCE HUD</span>
-            </button>
-
-            <button
-              onClick={() => {
-                playSynthChime(420, 'sine', 0.15);
-                onOpenLab('academy');
-              }}
-              className="px-6 py-4 rounded-2xl bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white border border-white/10 font-mono text-xs uppercase tracking-wider transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
-            >
-              <Compass className="w-4 h-4 text-[#A855F7]" />
-              <span>UNIVERSITY HUBS</span>
             </button>
           </div>
         </div>
@@ -737,16 +715,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLab, onOpenDisclaimer }
 
             <div className="pt-4 flex flex-wrap gap-4">
               <button
-                onClick={() => onOpenLab('dashboard')}
+                onClick={() => onOpenLab('arena')}
                 className="px-8 py-4 rounded-2xl bg-[#00F2FF] text-black font-orbitron font-black text-sm tracking-wider hover:bg-[#00F2FF]/90 transition-all shadow-[0_0_30px_rgba(0,242,255,0.4)] active:scale-95 cursor-pointer"
               >
-                LAUNCH HUD DASHBOARD
-              </button>
-              <button
-                onClick={() => onOpenLab('training')}
-                className="px-6 py-4 rounded-2xl bg-white/5 hover:bg-white/10 text-white border border-white/15 font-orbitron font-bold text-sm tracking-wider transition-all cursor-pointer"
-              >
-                VIEW BIOMECHANIC PROTOCOLS
+                ENTER VENICE COURT
               </button>
             </div>
           </div>

@@ -19,8 +19,10 @@ export interface BabylonSceneContext {
   engine: Engine;
   scene: Scene;
   camera: ArcRotateCamera;
+  canvas: HTMLCanvasElement;
   shadowGenerator?: ShadowGenerator;
   celPostProcess?: PostProcess;
+  dispose: () => void;
 }
 
 // Dark-Blue Ink Outline Color Palette Constants (Arc System Works / Anime Style)
@@ -67,23 +69,24 @@ export function setupCelShadingPipeline(scene: Scene, camera: ArcRotateCamera): 
         float dy = (lumUp - lumDown);
         float edge = sqrt(dx * dx + dy * dy);
 
-        // 2. Hard Shadow Terminator & Band Quantization (Anime Cel Stepping)
+        // 2. Soft band quantization; guard against pure-black crushing
         float numBands = max(celBands, 3.0);
-        float steppedLum = floor(lumCenter * numBands + 0.15) / numBands;
-        
-        // Hard-shadow cutoff logic
+        float steppedLum = floor(lumCenter * numBands + 0.5) / numBands;
         vec3 celShaded = originalColor.rgb * (steppedLum / max(lumCenter, 0.001));
-        // Clamp and boost saturation
-        celShaded = clamp(celShaded * 1.12, 0.0, 1.0);
+        celShaded = clamp(celShaded * 1.06, 0.0, 1.0);
 
-        // 3. Saturated Rim Lighting / High-Frequency Edge Highlights
-        float rimFactor = smoothstep(0.72, 0.98, lumCenter);
-        vec3 finalColor = mix(celShaded, celShaded + rimColor * 0.45, rimFactor);
+        // 3. Lift darkest tones so court/rim remain visible
+        float lift = 0.035;
+        celShaded = mix(celShaded, celShaded + lift, 1.0 - smoothstep(0.0, 0.25, lumCenter));
 
-        // 4. Blend Dark-Blue Ink Outlines (Thresholded)
-        if (edge > 0.085) {
-          float inkStrength = smoothstep(0.085, 0.22, edge);
-          finalColor = mix(finalColor, inkColor, inkStrength * 0.92);
+        // 4. Saturated Rim Lighting / High-Frequency Edge Highlights
+        float rimFactor = smoothstep(0.65, 0.95, lumCenter);
+        vec3 finalColor = mix(celShaded, celShaded + rimColor * 0.35, rimFactor);
+
+        // 5. Blend Dark-Blue Ink Outlines (Thresholded)
+        if (edge > 0.095) {
+          float inkStrength = smoothstep(0.095, 0.24, edge);
+          finalColor = mix(finalColor, inkColor, inkStrength * 0.82);
         }
 
         // Output final cel-shaded frame
@@ -107,57 +110,120 @@ export function setupCelShadingPipeline(scene: Scene, camera: ArcRotateCamera): 
     effect.setVector2('screenSize', new Vector3(scene.getEngine().getRenderWidth(), scene.getEngine().getRenderHeight(), 0));
     effect.setColor3('inkColor', ANIME_INK_BLUE);
     effect.setColor3('rimColor', RIM_CYAN);
-    effect.setFloat('outlineThickness', 1.25);
-    effect.setFloat('celBands', 3.0); // 3-tone hard stepped anime shade
+    effect.setFloat('outlineThickness', 1.0);
+    effect.setFloat('celBands', 6.0); // softer 6-tone banding to preserve visible detail
   };
 
   return postProcess;
 }
 
-export function createBabylonContext(canvas: HTMLCanvasElement): BabylonSceneContext {
-  const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+export function createBabylonContext(
+  canvas: HTMLCanvasElement,
+  options?: { previewSafe?: boolean }
+): BabylonSceneContext {
+  const previewSafe = !!options?.previewSafe;
+  const engine = new Engine(canvas, !previewSafe, {
+    preserveDrawingBuffer: false,
+    stencil: !previewSafe,
+    antialias: !previewSafe,
+    adaptToDeviceRatio: false,
+    powerPreference: previewSafe ? 'low-power' : 'default',
+    failIfMajorPerformanceCaveat: false,
+    audioEngine: false,
+  });
+  if (previewSafe) {
+    engine.setHardwareScalingLevel(Math.max(2, engine.getHardwareScalingLevel()));
+    const w = canvas.clientWidth || 640;
+    const h = canvas.clientHeight || 360;
+    engine.setSize(w, h, true);
+  }
   const scene = new Scene(engine);
-  scene.clearColor = new Color4(0.015, 0.02, 0.04, 1.0);
+  scene.skipPointerMovePicking = true;
+  scene.clearColor = new Color4(0.07, 0.11, 0.19, 1.0);
+  if (previewSafe) {
+    scene.shadowsEnabled = false;
+    scene.fogEnabled = false;
+    scene.particlesEnabled = false;
+    scene.spritesEnabled = false;
+    scene.lensFlaresEnabled = false;
+    scene.collisionsEnabled = false;
+    scene.constantlyUpdateMeshUnderPointer = false;
+  }
 
   // Camera setup
   const camera = new ArcRotateCamera(
     'mainCamera',
     -Math.PI / 2,
-    Math.PI / 3,
-    14,
-    new Vector3(0, 1.5, 0),
+    Math.PI / 2.9,
+    16,
+    new Vector3(0, 1.8, 0),
     scene
   );
-  camera.attachControl(canvas, true);
+  if (!previewSafe) {
+    camera.attachControl(canvas, true);
+  }
   camera.lowerRadiusLimit = 4;
-  camera.upperRadiusLimit = 28;
+  camera.upperRadiusLimit = 32;
   camera.lowerBetaLimit = 0.1;
-  camera.upperBetaLimit = Math.PI / 2 - 0.05;
+  camera.upperBetaLimit = Math.PI / 2 - 0.04;
 
-  // Key & Fill Lighting tuned for hard shadow terminators and anime cel contrast
+  // Venice night-court lighting: warm key + cool fill + rim so the canvas is not black
   const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), scene);
-  hemiLight.intensity = 0.55;
-  hemiLight.groundColor = new Color3(0.04, 0.07, 0.15); // Rich navy ground bounce
-  hemiLight.diffuse = new Color3(0.85, 0.92, 1.0);
+  hemiLight.intensity = 0.95;
+  hemiLight.groundColor = new Color3(0.12, 0.16, 0.26);
+  hemiLight.diffuse = new Color3(0.72, 0.8, 1.0);
 
-  const dirLight = new DirectionalLight('dirLight', new Vector3(-1, -2, -1).normalize(), scene);
-  dirLight.position = new Vector3(8, 14, 8);
-  dirLight.intensity = 1.35;
-  dirLight.diffuse = new Color3(1.0, 0.98, 0.92);
+  const dirLight = new DirectionalLight('dirLight', new Vector3(-1, -2.5, -1.2).normalize(), scene);
+  dirLight.position = new Vector3(12, 22, 14);
+  dirLight.intensity = 1.75;
+  dirLight.diffuse = new Color3(1.0, 0.95, 0.84);
 
-  const shadowGen = new ShadowGenerator(1024, dirLight);
-  shadowGen.useBlurExponentialShadowMap = true;
-  shadowGen.blurKernel = 16; // Sharper anime shadow edge
+  if (!previewSafe) {
+    const rimLight = new DirectionalLight('rimLight', new Vector3(1, -0.5, 0.8).normalize(), scene);
+    rimLight.position = new Vector3(-10, 7, -10);
+    rimLight.intensity = 0.85;
+    rimLight.diffuse = new Color3(0.52, 0.78, 1.0);
+  }
 
-  // Attach the Cel-Shading & Dark-Blue Ink Outline Shader Post-Processing Pipeline
-  const celPostProcess = setupCelShadingPipeline(scene, camera);
+  const shadowGen = previewSafe ? undefined : new ShadowGenerator(2048, dirLight);
+  if (shadowGen) {
+    shadowGen.useBlurExponentialShadowMap = true;
+    shadowGen.blurKernel = 16;
+    shadowGen.bias = 0.0005;
+  }
 
-  // Resize handling
-  window.addEventListener('resize', () => {
-    engine.resize();
-  });
+  const celPostProcess = previewSafe ? undefined : setupCelShadingPipeline(scene, camera);
 
-  return { engine, scene, camera, shadowGenerator: shadowGen, celPostProcess };
+  let resizeTimer = 0;
+  let lastW = engine.getRenderWidth();
+  let lastH = engine.getRenderHeight();
+  const onResize = () => {
+    if (engine.isDisposed) return;
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      resizeTimer = 0;
+      if (engine.isDisposed) return;
+      const w = canvas.clientWidth || lastW;
+      const h = canvas.clientHeight || lastH;
+      if (previewSafe && Math.abs(w - lastW) < 80 && Math.abs(h - lastH) < 80) return;
+      lastW = w;
+      lastH = h;
+      engine.resize();
+    }, previewSafe ? 320 : 200);
+  };
+  window.addEventListener('resize', onResize);
+
+  const dispose = () => {
+    window.removeEventListener('resize', onResize);
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    if (!engine.isDisposed) {
+      engine.stopRenderLoop();
+      scene.dispose();
+      engine.dispose();
+    }
+  };
+
+  return { engine, scene, camera, canvas, shadowGenerator: shadowGen, celPostProcess, dispose };
 }
 
 /**
@@ -216,8 +282,8 @@ export function createProceduralAthlete(
     }
   }
 
-  const root = new Mesh(name, scene);
-  
+  const root = new Mesh(`${name}_root`, scene);
+
   // Materials with hard stepped specular and vibrant diffuse
   const skinMat = new StandardMaterial(`${name}_skin`, scene);
   skinMat.diffuseColor = skinColor;
@@ -233,50 +299,171 @@ export function createProceduralAthlete(
   accentMat.diffuseColor = accentColor;
   accentMat.emissiveColor = accentColor.scale(0.35);
 
-  // Torso
-  const torso = MeshBuilder.CreateBox(`${name}_torso`, { width: 0.8, height: 1.1, depth: 0.45 }, scene);
-  torso.position.y = 1.6;
+  const shoeMat = new StandardMaterial(`${name}_shoe`, scene);
+  shoeMat.diffuseColor = accentColor;
+  shoeMat.specularColor = new Color3(0.2, 0.2, 0.2);
+
+  // Hips / pelvis anchor
+  const hips = new Mesh(`${name}_hips`, scene);
+  hips.position.y = 1.0;
+  hips.parent = root;
+
+  // Torso (slightly tapered)
+  const torso = MeshBuilder.CreateBox(`${name}_torso`, { width: 0.72, height: 1.0, depth: 0.42 }, scene);
+  torso.position.y = 1.65;
   torso.material = kitMat;
   torso.parent = root;
-  applyAnimeInkOutlineToMesh(torso, 0.04);
+  applyAnimeInkOutlineToMesh(torso, 0.035);
   shadowGen?.addShadowCaster(torso);
 
   // Head
-  const head = MeshBuilder.CreateSphere(`${name}_head`, { diameter: 0.45 }, scene);
-  head.position.y = 2.4;
+  const head = MeshBuilder.CreateSphere(`${name}_head`, { diameter: 0.42 }, scene);
+  head.position.y = 2.35;
   head.material = skinMat;
   head.parent = root;
-  applyAnimeInkOutlineToMesh(head, 0.035);
+  applyAnimeInkOutlineToMesh(head, 0.03);
   shadowGen?.addShadowCaster(head);
 
-  // Limbs
-  const leftArm = MeshBuilder.CreateCylinder(`${name}_leftArm`, { height: 0.85, diameter: 0.18 }, scene);
-  leftArm.position.set(-0.55, 1.7, 0);
-  leftArm.rotation.z = Math.PI / 8;
-  leftArm.material = skinMat;
+  // --- Segmented arms ---
+  const shoulderY = 2.05;
+  const shoulderX = 0.48;
+
+  const leftShoulder = MeshBuilder.CreateSphere(`${name}_leftShoulder`, { diameter: 0.22 }, scene);
+  leftShoulder.position.set(-shoulderX, shoulderY, 0);
+  leftShoulder.material = skinMat;
+  leftShoulder.parent = root;
+  applyAnimeInkOutlineToMesh(leftShoulder, 0.025);
+
+  const leftUpperArm = MeshBuilder.CreateCylinder(`${name}_leftUpperArm`, { height: 0.52, diameter: 0.17 }, scene);
+  leftUpperArm.position.set(-shoulderX - 0.08, shoulderY - 0.32, 0);
+  leftUpperArm.rotation.z = Math.PI / 10;
+  leftUpperArm.material = skinMat;
+  leftUpperArm.parent = root;
+  applyAnimeInkOutlineToMesh(leftUpperArm, 0.025);
+
+  const leftElbow = MeshBuilder.CreateSphere(`${name}_leftElbow`, { diameter: 0.16 }, scene);
+  leftElbow.position.set(-shoulderX - 0.16, shoulderY - 0.62, 0);
+  leftElbow.material = skinMat;
+  leftElbow.parent = root;
+  applyAnimeInkOutlineToMesh(leftElbow, 0.02);
+
+  const leftForearm = MeshBuilder.CreateCylinder(`${name}_leftForearm`, { height: 0.48, diameter: 0.15 }, scene);
+  leftForearm.position.set(-shoulderX - 0.2, shoulderY - 0.92, 0.05);
+  leftForearm.rotation.z = Math.PI / 8;
+  leftForearm.material = skinMat;
+  leftForearm.parent = root;
+  applyAnimeInkOutlineToMesh(leftForearm, 0.025);
+
+  const rightShoulder = MeshBuilder.CreateSphere(`${name}_rightShoulder`, { diameter: 0.22 }, scene);
+  rightShoulder.position.set(shoulderX, shoulderY, 0);
+  rightShoulder.material = skinMat;
+  rightShoulder.parent = root;
+  applyAnimeInkOutlineToMesh(rightShoulder, 0.025);
+
+  const rightUpperArm = MeshBuilder.CreateCylinder(`${name}_rightUpperArm`, { height: 0.52, diameter: 0.17 }, scene);
+  rightUpperArm.position.set(shoulderX + 0.08, shoulderY - 0.32, 0);
+  rightUpperArm.rotation.z = -Math.PI / 10;
+  rightUpperArm.material = skinMat;
+  rightUpperArm.parent = root;
+  applyAnimeInkOutlineToMesh(rightUpperArm, 0.025);
+
+  const rightElbow = MeshBuilder.CreateSphere(`${name}_rightElbow`, { diameter: 0.16 }, scene);
+  rightElbow.position.set(shoulderX + 0.16, shoulderY - 0.62, 0);
+  rightElbow.material = skinMat;
+  rightElbow.parent = root;
+  applyAnimeInkOutlineToMesh(rightElbow, 0.02);
+
+  const rightForearm = MeshBuilder.CreateCylinder(`${name}_rightForearm`, { height: 0.48, diameter: 0.15 }, scene);
+  rightForearm.position.set(shoulderX + 0.2, shoulderY - 0.92, 0.05);
+  rightForearm.rotation.z = -Math.PI / 8;
+  rightForearm.material = skinMat;
+  rightForearm.parent = root;
+  applyAnimeInkOutlineToMesh(rightForearm, 0.025);
+
+  // Visible arm chains parented to the nodes callers rotate — no 0.01 ghost limbs.
+  const leftArm = new Mesh(`${name}_leftArm`, scene);
   leftArm.parent = root;
-  applyAnimeInkOutlineToMesh(leftArm, 0.03);
-
-  const rightArm = MeshBuilder.CreateCylinder(`${name}_rightArm`, { height: 0.85, diameter: 0.18 }, scene);
-  rightArm.position.set(0.55, 1.7, 0);
-  rightArm.rotation.z = -Math.PI / 8;
-  rightArm.material = skinMat;
+  leftShoulder.parent = leftArm;
+  leftUpperArm.parent = leftArm;
+  leftElbow.parent = leftArm;
+  leftForearm.parent = leftArm;
+  const rightArm = new Mesh(`${name}_rightArm`, scene);
   rightArm.parent = root;
-  applyAnimeInkOutlineToMesh(rightArm, 0.03);
+  rightShoulder.parent = rightArm;
+  rightUpperArm.parent = rightArm;
+  rightElbow.parent = rightArm;
+  rightForearm.parent = rightArm;
 
-  const leftLeg = MeshBuilder.CreateCylinder(`${name}_leftLeg`, { height: 1.1, diameter: 0.22 }, scene);
-  leftLeg.position.set(-0.25, 0.55, 0);
-  leftLeg.material = kitMat;
+  // --- Segmented legs ---
+  const hipX = 0.24;
+
+  const leftThigh = MeshBuilder.CreateCylinder(`${name}_leftThigh`, { height: 0.62, diameterTop: 0.21, diameterBottom: 0.17 }, scene);
+  leftThigh.position.set(-hipX, 0.72, 0);
+  leftThigh.material = kitMat;
+  leftThigh.parent = root;
+  applyAnimeInkOutlineToMesh(leftThigh, 0.03);
+  shadowGen?.addShadowCaster(leftThigh);
+
+  const leftKnee = MeshBuilder.CreateSphere(`${name}_leftKnee`, { diameter: 0.18 }, scene);
+  leftKnee.position.set(-hipX, 0.38, 0);
+  leftKnee.material = skinMat;
+  leftKnee.parent = root;
+  applyAnimeInkOutlineToMesh(leftKnee, 0.02);
+
+  const leftShin = MeshBuilder.CreateCylinder(`${name}_leftShin`, { height: 0.58, diameterTop: 0.16, diameterBottom: 0.12 }, scene);
+  leftShin.position.set(-hipX, 0.06, 0.02);
+  leftShin.material = skinMat;
+  leftShin.parent = root;
+  applyAnimeInkOutlineToMesh(leftShin, 0.03);
+  shadowGen?.addShadowCaster(leftShin);
+
+  const leftFoot = MeshBuilder.CreateBox(`${name}_leftFoot`, { width: 0.18, height: 0.12, depth: 0.4 }, scene);
+  leftFoot.position.set(-hipX, -0.04, 0.1);
+  leftFoot.material = shoeMat;
+  leftFoot.parent = root;
+  applyAnimeInkOutlineToMesh(leftFoot, 0.03);
+  shadowGen?.addShadowCaster(leftFoot);
+
+  const rightThigh = MeshBuilder.CreateCylinder(`${name}_rightThigh`, { height: 0.62, diameterTop: 0.21, diameterBottom: 0.17 }, scene);
+  rightThigh.position.set(hipX, 0.72, 0);
+  rightThigh.material = kitMat;
+  rightThigh.parent = root;
+  applyAnimeInkOutlineToMesh(rightThigh, 0.03);
+  shadowGen?.addShadowCaster(rightThigh);
+
+  const rightKnee = MeshBuilder.CreateSphere(`${name}_rightKnee`, { diameter: 0.18 }, scene);
+  rightKnee.position.set(hipX, 0.38, 0);
+  rightKnee.material = skinMat;
+  rightKnee.parent = root;
+  applyAnimeInkOutlineToMesh(rightKnee, 0.02);
+
+  const rightShin = MeshBuilder.CreateCylinder(`${name}_rightShin`, { height: 0.58, diameterTop: 0.16, diameterBottom: 0.12 }, scene);
+  rightShin.position.set(hipX, 0.06, 0.02);
+  rightShin.material = skinMat;
+  rightShin.parent = root;
+  applyAnimeInkOutlineToMesh(rightShin, 0.03);
+  shadowGen?.addShadowCaster(rightShin);
+
+  const rightFoot = MeshBuilder.CreateBox(`${name}_rightFoot`, { width: 0.18, height: 0.12, depth: 0.4 }, scene);
+  rightFoot.position.set(hipX, -0.04, 0.1);
+  rightFoot.material = shoeMat;
+  rightFoot.parent = root;
+  applyAnimeInkOutlineToMesh(rightFoot, 0.03);
+  shadowGen?.addShadowCaster(rightFoot);
+
+  // Visible legs parented to the nodes callers rotate — thighs move with the pose.
+  const leftLeg = new Mesh(`${name}_leftLeg`, scene);
   leftLeg.parent = root;
-  applyAnimeInkOutlineToMesh(leftLeg, 0.035);
-  shadowGen?.addShadowCaster(leftLeg);
-
-  const rightLeg = MeshBuilder.CreateCylinder(`${name}_rightLeg`, { height: 1.1, diameter: 0.22 }, scene);
-  rightLeg.position.set(0.25, 0.55, 0);
-  rightLeg.material = kitMat;
+  leftThigh.parent = leftLeg;
+  leftKnee.parent = leftLeg;
+  leftShin.parent = leftLeg;
+  leftFoot.parent = leftLeg;
+  const rightLeg = new Mesh(`${name}_rightLeg`, scene);
   rightLeg.parent = root;
-  applyAnimeInkOutlineToMesh(rightLeg, 0.035);
-  shadowGen?.addShadowCaster(rightLeg);
+  rightThigh.parent = rightLeg;
+  rightKnee.parent = rightLeg;
+  rightShin.parent = rightLeg;
+  rightFoot.parent = rightLeg;
 
   let basketball: Mesh | undefined;
   let propMesh: Mesh | undefined;
@@ -344,5 +531,33 @@ export function createProceduralAthlete(
   }
 
   return { root, head, torso, leftArm, rightArm, leftLeg, rightLeg, basketball, propMesh };
+}
+
+/**
+ * Helper to pose the segmented humanoid into a reverse two-hand slam silhouette.
+ * Modifies the exposed compound limbs and underlying segmented meshes.
+ */
+export function poseReverseTwoHandSlam(
+  athlete: ReturnType<typeof createProceduralAthlete>,
+  scene: Scene,
+  intensity = 1.0
+) {
+  const { root, rightArm, leftArm, rightLeg, leftLeg } = athlete;
+  if (!root || !scene) return;
+  const rightShin = scene.getMeshByName(`${root.name.replace('_root', '')}_rightShin`) as Mesh | null;
+  const leftShin = scene.getMeshByName(`${root.name.replace('_root', '')}_leftShin`) as Mesh | null;
+  const rightForearm = scene.getMeshByName(`${root.name.replace('_root', '')}_rightForearm`) as Mesh | null;
+  const leftForearm = scene.getMeshByName(`${root.name.replace('_root', '')}_leftForearm`) as Mesh | null;
+
+  // Rotate the visible parent chains — not hidden 0.01 ghosts beside a T-pose.
+  rightLeg.rotation.x = -1.1 * intensity;
+  leftLeg.rotation.x = -0.9 * intensity;
+  if (rightShin) rightShin.rotation.x = 0.55 * intensity;
+  if (leftShin) leftShin.rotation.x = 0.5 * intensity;
+
+  rightArm.rotation.x = -Math.PI * 0.95 * intensity;
+  leftArm.rotation.x = -Math.PI * 0.85 * intensity;
+  if (rightForearm) rightForearm.rotation.x = -0.35 * intensity;
+  if (leftForearm) leftForearm.rotation.x = -0.3 * intensity;
 }
 

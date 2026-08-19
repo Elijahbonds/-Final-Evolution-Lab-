@@ -8,12 +8,18 @@ import Dashboard from './components/Dashboard';
 import SmartInstallBanner from './components/SmartInstallBanner';
 import { UniversityHub } from './components/university/UniversityHub';
 import { PhysicalTrackView } from './components/university/PhysicalTrackView';
-import { ModeManager } from './components/modes/ModeManager';
+import { ModeManager, ActiveSportMode } from './components/modes/ModeManager';
 
 type View = 'landing' | 'dashboard' | 'arena' | 'lab' | 'training' | 'academy' | 'community' | 'mixtapes' | 'support';
 
+// Full-bleed 3D arena modes get the dashboard's padding/max-width chrome
+// out of the way; everything else (the sport picker grid, 2D mini-games)
+// keeps the standard dashboard card layout.
+const IMMERSIVE_3D_MODES: ReadonlySet<ActiveSportMode> = new Set(['babylon_dunk', 'babylon_karate']);
+
 const App: React.FC = () => {
-  const [view, setView] = useState<View>('landing');
+  const [view, setView] = useState<View>('arena');
+  const [arenaMode, setArenaMode] = useState<ActiveSportMode>('babylon_dunk');
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showBank, setShowBank] = useState(false);
   const [shards, setShards] = useState(1250);
@@ -120,9 +126,13 @@ const App: React.FC = () => {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -20 }}
                     transition={{ duration: 0.5 }}
-                    className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto"
+                    className={
+                      IMMERSIVE_3D_MODES.has(arenaMode)
+                        ? 'p-2 sm:p-3 lg:p-4 max-w-[1600px] mx-auto'
+                        : 'p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto'
+                    }
                   >
-                    <ModeManager />
+                    <ModeManager onModeChange={setArenaMode} />
                   </motion.div>
                 )}
 

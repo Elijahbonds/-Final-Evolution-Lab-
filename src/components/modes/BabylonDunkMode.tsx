@@ -1,271 +1,472 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { 
-  ArrowLeft, RotateCcw, Volume2, VolumeX, Flame, 
-  Trophy, Play
-} from 'lucide-react';
-import { 
-  Vector3, Color3, MeshBuilder, StandardMaterial, 
-  ParticleSystem, Texture
-} from '@babylonjs/core';
-import { createBabylonContext, createProceduralAthlete, BabylonSceneContext } from '../../lib/babylon/BabylonSceneBuilder';
+import { ArrowLeft, Volume2, VolumeX } from 'lucide-react';
+import { Vector3, FreeCamera, Color3, TransformNode } from '@babylonjs/core';
+import { createBabylonContext } from '../../lib/babylon/BabylonSceneBuilder';
+import { abortMixamoLoad, createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
+import {
+  buildVeniceNightCourt,
+  hideCheapVenicePrimitives,
+  loadMeshyVeniceCourt,
+  MeshyVeniceCourt,
+  VeniceNightCourt,
+} from '../../lib/babylon/VeniceNightCourt';
+import { directedFraming } from '../../lib/babylon/veniceDunkCamera';
+import {
+  VeniceDunkAttempt,
+  EASTBAY_MASTER_STANDARD,
+  AttemptMetrics,
+  ContactOutcome,
+  DunkPhase,
+} from '../../core/VeniceDunkLoop';
+import { VENICE_RESULT_COPY, caseMissHeadline, caseMissSub } from '../../core/veniceResultCopy';
+import { LOCAL_ASSET_TIMEOUT_MS, withTimeout } from '../../lib/babylon/localAssets';
 import { SoundJuice } from '../../lib/judgeScoring';
 
 interface BabylonDunkModeProps {
   onBack: () => void;
 }
 
+type IdleFrame = 'BOARDWALK' | 'COURTSIDE' | 'RIM';
+
 export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const contextRef = useRef<BabylonSceneContext | null>(null);
+  const attemptRef = useRef(new VeniceDunkAttempt(-6.2, 5.5, 3.05));
+  const athleteRef = useRef<MixamoAthlete | null>(null);
+  const courtRef = useRef<VeniceNightCourt | null>(null);
+  const meshyCourtRef = useRef<MeshyVeniceCourt | null>(null);
+  const worldScaleRef = useRef(1);
+  const dunkCamRef = useRef<FreeCamera | null>(null);
+  const hoopPosRef = useRef(new Vector3(0, 3.05, 5.5));
+  const pointerDownRef = useRef(false);
+  const lastPhaseRef = useRef<DunkPhase>('IDLE');
+  const camPosRef = useRef(new Vector3(2.8, 1.8, -9.2));
+  const camTargetRef = useRef(new Vector3(0, 1.4, 1.5));
 
-  const [gameState, setGameState] = useState<'IDLE' | 'APPROACH' | 'AIRBORNE' | 'SLAMMED' | 'SCORED'>('IDLE');
-  const [charge, setCharge] = useState<number>(0);
-  const [dunkStyle, setDunkStyle] = useState<'WINDMILL' | 'TOMAHAWK' | '360_SPIN' | 'BETWEEN_LEGS'>('WINDMILL');
-  const [score, setScore] = useState<number | null>(null);
-  const [scoresArray, setScoresArray] = useState<{ judge: string; pts: number; note: string }[]>([]);
-  const [gctMs, setGctMs] = useState<number>(98);
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [cameraMode, setCameraMode] = useState<'BROADCAST' | 'COURTSIDE' | 'RIM_CAM'>('BROADCAST');
-
-  const athleteRef = useRef<ReturnType<typeof createProceduralAthlete> | null>(null);
-  const hoopPosRef = useRef<Vector3>(new Vector3(0, 3.05, 5.5));
-  const athletePosRef = useRef<Vector3>(new Vector3(0, 0, -6));
-  const isHoldingCharge = useRef<boolean>(false);
-  const chargeStartTime = useRef<number>(0);
+  const [phase, setPhase] = useState<DunkPhase>('IDLE');
+  const [result, setResult] = useState<ContactOutcome | null>(null);
+  const [metrics, setMetrics] = useState<AttemptMetrics | null>(null);
+  const [cue, setCue] = useState<string | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [idleFrame, setIdleFrame] = useState<IdleFrame>('BOARDWALK');
+  const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const playSfx = useCallback((fn: () => void) => {
     if (soundEnabled) fn();
   }, [soundEnabled]);
+  const playSfxRef = useRef(playSfx);
+  const lastPointerXRef = useRef<number | null>(null);
 
-  // Initialize Babylon 3D Scene
+  useEffect(() => {
+    playSfxRef.current = playSfx;
+  }, [playSfx]);
+
   useEffect(() => {
     if (!canvasRef.current) return;
-    const ctx = createBabylonContext(canvasRef.current);
-    contextRef.current = ctx;
-    const { scene, shadowGenerator } = ctx;
-    const hoopPosition = hoopPosRef.current;
+    // The finished product is Unreal-reading Venice night — real sky/water
+    // shaders, rim spot, shadows, antialiasing. The previewSafe escape
+    // hatch flattened all of that to a beige/blue toy slab; it must be
+    // OFF for the actual dunk boot.
+    const ctx = createBabylonContext(canvasRef.current, { previewSafe: false });
+    const { scene, shadowGenerator, camera, engine } = ctx;
+    camera.detachControl();
 
-    // 1. Venice Beach Hardcourt Ground Mesh
-    const court = MeshBuilder.CreateGround('venice_court', { width: 16, height: 24 }, scene);
-    const courtMat = new StandardMaterial('courtMat', scene);
-    courtMat.diffuseColor = new Color3(0.06, 0.22, 0.42); // Venice Blue
-    courtMat.specularColor = new Color3(0.15, 0.15, 0.15);
-    court.material = courtMat;
-    court.receiveShadows = true;
+    const dunkCam = new FreeCamera('veniceDunkCam', new Vector3(2.8, 1.8, -9.2), scene);
+    dunkCam.minZ = 0.08;
+    dunkCam.maxZ = 220;
+    dunkCam.fov = 0.88;
+    dunkCam.inputs.clear();
+    const lookAt = new TransformNode('veniceDunkLook', scene);
+    lookAt.position.copyFrom(camTargetRef.current);
+    dunkCam.lockedTarget = lookAt;
+    scene.activeCamera = dunkCam;
+    dunkCamRef.current = dunkCam;
 
-    // Court Boundary Lines
-    const lines = MeshBuilder.CreateBox('court_lines', { width: 14.8, height: 0.01, depth: 22.8 }, scene);
-    const lineMat = new StandardMaterial('lineMat', scene);
-    lineMat.diffuseColor = new Color3(0.9, 0.9, 0.95);
-    lineMat.alpha = 0.6;
-    lines.position.y = 0.005;
-    lines.material = lineMat;
+    let disposed = false;
+    let allowedToDraw = false;
+    let bootAborted = false;
+    const hoop = hoopPosRef.current;
+    const framePos = new Vector3();
+    const frameTarget = new Vector3();
 
-    // 2. Regulation 3.05m Basketball Backboard & Rim
-    const post = MeshBuilder.CreateCylinder('hoop_post', { height: 3.8, diameter: 0.16 }, scene);
-    post.position.set(0, 1.9, 6.2);
-    const postMat = new StandardMaterial('postMat', scene);
-    postMat.diffuseColor = new Color3(0.2, 0.2, 0.25);
-    post.material = postMat;
-    shadowGenerator?.addShadowCaster(post);
+    const killHungLoad = () => {
+      bootAborted = true;
+      allowedToDraw = false;
+      abortMixamoLoad(scene);
+      try {
+        athleteRef.current?.dispose();
+      } catch {
+        /* athlete may not exist yet */
+      }
+      athleteRef.current = null;
+    };
 
-    const backboard = MeshBuilder.CreateBox('backboard', { width: 1.8, height: 1.05, depth: 0.08 }, scene);
-    backboard.position.set(0, 3.4, 5.8);
-    const boardMat = new StandardMaterial('boardMat', scene);
-    boardMat.diffuseColor = new Color3(0.9, 0.9, 1.0);
-    boardMat.alpha = 0.85;
-    backboard.material = boardMat;
-    shadowGenerator?.addShadowCaster(backboard);
+    const boot = async () => {
+      try {
+        // Authored Venice night (real shaders, rim spot, fence) renders
+        // first — court and athlete gameplay never wait on the Meshy
+        // mural, so the night court is never an infinite spinner.
+        const court = await buildVeniceNightCourt(scene, shadowGenerator, hoop, {
+          spectators: false,
+          previewSafe: false,
+        });
+        if (disposed || bootAborted || scene.isDisposed) {
+          return;
+        }
+        courtRef.current = court;
 
-    // Rim (Torus)
-    const rim = MeshBuilder.CreateTorus('rim', { diameter: 0.55, thickness: 0.05, tessellation: 24 }, scene);
-    rim.position.copyFrom(hoopPosition);
-    rim.rotation.x = Math.PI / 2;
-    const rimMat = new StandardMaterial('rimMat', scene);
-    rimMat.diffuseColor = new Color3(1.0, 0.35, 0.0);
-    rimMat.emissiveColor = new Color3(0.4, 0.15, 0.0);
-    rim.material = rimMat;
-    shadowGenerator?.addShadowCaster(rim);
+        // Meshy court + surround: fetch + File + glTF import on the LIVE
+        // scene, fully resolved (load, attach, hideCheap) BEFORE the
+        // athlete's hang-required timeout below can start, let alone
+        // dispose anything. This load has its own timeout and is
+        // best-effort — any failure keeps the cheap court visible and
+        // must never throw out of boot() or touch athlete state.
+        try {
+          const meshy = await loadMeshyVeniceCourt(scene, {
+            courtWidth: 15.2,
+            courtDepth: 28,
+            surroundWidth: 60,
+            surroundDepth: 60,
+            courtCenterZ: 5.0,
+          });
+          if (disposed || bootAborted || scene.isDisposed) {
+            meshy.dispose();
+          } else {
+            meshyCourtRef.current = meshy;
+            worldScaleRef.current = meshy.worldScale;
+            hideCheapVenicePrimitives(scene, {
+              court: meshy.courtLoaded,
+              surround: meshy.surroundLoaded,
+            });
+            // Hoop, backboard, and post fit the mural's own native scale —
+            // not the other way around. Rim Y stays gameplay-driven
+            // (hoopRestY + rimYOffset below); this only sets visual size
+            // and, for backboard/post, repositions them at the SAME
+            // proportional offset from the hoop so a bigger assembly does
+            // not clip through itself.
+            if ((meshy.courtLoaded || meshy.surroundLoaded) && meshy.worldScale > 1) {
+              const s = meshy.worldScale;
+              const rim = courtRef.current?.rim;
+              const backboard = courtRef.current?.backboard;
+              const post = scene.getMeshByName('venice_post');
+              rim?.scaling.set(s, s, s);
+              if (backboard) {
+                backboard.scaling.set(s, s, s);
+                const offset = backboard.position.subtract(hoop);
+                backboard.position.copyFrom(hoop.add(offset.scale(s)));
+              }
+              if (post) {
+                post.scaling.set(s, s, s);
+                const offset = post.position.subtract(hoop);
+                post.position.copyFrom(hoop.add(offset.scale(s)));
+              }
+            }
+          }
+        } catch {
+          /* Meshy mural is best-effort; cheap procedural court stays up */
+        }
 
-    // 3. Procedural Athlete in 3D
-    const athlete = createProceduralAthlete(
-      scene,
-      'heroAthlete',
-      new Color3(0.0, 0.95, 1.0), // Neon Cyan Jersey
-      new Color3(0.44, 0.0, 1.0), // Purple Accent
-      shadowGenerator
-    );
-    athleteRef.current = athlete;
-    athlete.root.position.copyFrom(athletePosRef.current);
+        if (disposed || bootAborted || scene.isDisposed) {
+          return;
+        }
 
-    // Particle Burst for Rim Slam
-    const particleSys = new ParticleSystem('slamParticles', 100, scene);
-    particleSys.particleTexture = new Texture('https://assets.babylonjs.com/textures/flare.png', scene);
-    particleSys.emitter = hoopPosition;
-    particleSys.minEmitBox = new Vector3(-0.2, -0.2, -0.2);
-    particleSys.maxEmitBox = new Vector3(0.2, 0.2, 0.2);
-    particleSys.color1 = new Color3(1.0, 0.8, 0.2).toColor4(1);
-    particleSys.color2 = new Color3(0.0, 0.95, 1.0).toColor4(1);
-    particleSys.minSize = 0.1;
-    particleSys.maxSize = 0.3;
-    particleSys.minLifeTime = 0.2;
-    particleSys.maxLifeTime = 0.6;
-    particleSys.manualEmitCount = 0;
-    particleSys.start();
+        // Hang-required stays scoped to the athlete only: GLB + Elijah BVH.
+        await withTimeout(
+          (async () => {
+            const athlete = await createMixamoAthlete(scene, 'veniceDunker', shadowGenerator, {
+              tint: new Color3(0.05, 0.55, 0.7),
+            });
+            if (disposed || bootAborted || scene.isDisposed) {
+              athlete.dispose();
+              abortMixamoLoad(scene);
+              return;
+            }
+            if (!athlete.anims.dunkTake) {
+              athlete.dispose();
+              throw new Error('Elijah dunk BVH missing — hang body required');
+            }
+            if (disposed || bootAborted || scene.isDisposed) {
+              athlete.dispose();
+              abortMixamoLoad(scene);
+              return;
+            }
+            athlete.root.position.set(0, 0, -6.2);
+            athlete.root.rotation.y = 0;
+            athleteRef.current = athlete;
+            athlete.playIdle();
+            try {
+              scene.cleanCachedTextureBuffer();
+            } catch {
+              /* older engines may not expose the cache wipe */
+            }
+            if (disposed || bootAborted || scene.isDisposed) {
+              athlete.dispose();
+              athleteRef.current = null;
+              abortMixamoLoad(scene);
+              return;
+            }
+            allowedToDraw = true;
+            setReady(true);
+          })(),
+          LOCAL_ASSET_TIMEOUT_MS + 4000,
+          'Mixamo dunker',
+          killHungLoad
+        );
+      } catch (err) {
+        allowedToDraw = false;
+        killHungLoad();
+        if (disposed) return;
+        setLoadError(err instanceof Error ? err.message : 'Mixamo dunker failed to load');
+        try {
+          engine.stopRenderLoop();
+        } catch {
+          /* keep the iframe up if the engine is already gone */
+        }
+      }
+    };
+    void boot();
 
-    // Game loop render
-    ctx.engine.runRenderLoop(() => {
-      scene.render();
+    const observer = scene.onBeforeRenderObservable.add(() => {
+      if (disposed || scene.isDisposed || engine.isDisposed) return;
+      try {
+      const dt = Math.min(0.05, engine.getDeltaTime() / 1000);
+      const attempt = attemptRef.current;
+      const athlete = athleteRef.current;
+      const court = courtRef.current;
+      const cam = dunkCamRef.current;
+      if (!athlete || !court || !cam) return;
+
+      const snap = attempt.tick(dt);
+      court.tick(performance.now() / 1000);
+      court.rim.position.y = court.hoopRestY + snap.rimYOffset;
+
+      athlete.root.position.x = snap.rootX;
+      athlete.root.position.y = snap.rootY;
+      athlete.root.position.z = snap.rootZ;
+
+      if (snap.phase !== lastPhaseRef.current) {
+        lastPhaseRef.current = snap.phase;
+        setPhase(snap.phase);
+        if (snap.phase === 'PLANT') playSfxRef.current(() => SoundJuice.playTakeoff());
+        if (snap.phase === 'CONTACT') {
+          playSfxRef.current(() => SoundJuice.playSlam());
+          setResult(snap.outcome);
+          setMetrics(snap.metrics);
+          court.reactCrowd(snap.outcome?.isMake ? 'cheer' : 'miss', 1);
+        }
+        if (snap.phase === 'IDLE') {
+          athlete.playIdle();
+          athlete.root.rotation.y = 0;
+          court.reactCrowd('sit');
+        }
+        if (snap.phase === 'RUNWAY') athlete.playRun(1.05);
+        if (snap.phase === 'GATHER') {
+          athlete.playRun(0.72);
+          court.reactCrowd('watch', 0.7);
+        }
+        if (snap.phase === 'PLANT') court.reactCrowd('watch', 1);
+        if (snap.phase === 'HANG') court.reactCrowd('rise', 0.85);
+        if (snap.phase === 'BLOWN') {
+          athlete.stopClips();
+          court.reactCrowd('miss', 0.7);
+          setResult(snap.outcome);
+          setMetrics(snap.metrics);
+          setCue(snap.gatherMiss === 'EARLY' ? 'EARLY' : 'LATE');
+        }
+      }
+
+      if (snap.phase === 'RUNWAY') {
+        athlete.playRun(0.8 + (attempt.approachSpeed / 8.8) * 0.6);
+      }
+
+      if (snap.phase === 'PLANT' && attempt.plantElapsed > 0) {
+        athlete.posePlant(Math.min(1, attempt.compression01 + 0.25));
+        athlete.root.rotation.x = (attempt.trunkLeanDeg * Math.PI) / 180 * 0.15;
+      }
+      if (snap.phase === 'TAKEOFF') {
+        const p = snap.takeoffApexY > 0.01 ? Math.max(0, Math.min(1, snap.rootY / snap.takeoffApexY)) : 0;
+        athlete.poseTakeoff(p);
+        athlete.root.rotation.x *= 1 - p;
+      }
+      if (snap.phase === 'HANG' || snap.phase === 'CONTACT') {
+        const hangT = Math.min(athlete.hangContactT01, attempt.hangElapsed / 0.4);
+        athlete.playSlam(snap.style, snap.phase === 'CONTACT' ? athlete.hangContactT01 : hangT);
+        athlete.root.rotation.y = Math.PI;
+      }
+      if (snap.phase === 'LAND' || snap.phase === 'BLOWN') {
+        athlete.root.rotation.y *= 0.85;
+        athlete.root.rotation.x *= 0.7;
+      }
+
+      const framing = directedFraming(
+        snap.phase,
+        athlete.root.position,
+        hoopPosRef.current,
+        framePos,
+        frameTarget,
+        worldScaleRef.current
+      );
+      const follow = snap.phase === 'IDLE' ? 0.08 : 0.14;
+      Vector3.LerpToRef(camPosRef.current, framing.pos, follow, camPosRef.current);
+      Vector3.LerpToRef(camTargetRef.current, framing.target, follow, camTargetRef.current);
+      cam.position.copyFrom(camPosRef.current);
+      lookAt.position.copyFrom(camTargetRef.current);
+      } catch {
+        /* keep the iframe alive if a pose or cam frame throws */
+      }
+    });
+
+    let drawFails = 0;
+    let lastDraw = 0;
+    engine.onContextLostObservable.add(() => {
+      disposed = true;
+      try {
+        engine.stopRenderLoop();
+      } catch {
+        /* already gone */
+      }
+      setLoadError('Preview renderer lost the GPU context');
+    });
+    engine.runRenderLoop(() => {
+      try {
+        if (disposed || engine.isDisposed || scene.isDisposed || !allowedToDraw) return;
+        const now = performance.now();
+        if (now - lastDraw < 1000 / 24) return;
+        lastDraw = now;
+        scene.render();
+        drawFails = 0;
+      } catch {
+        drawFails += 1;
+        if (drawFails >= 3) {
+          try {
+            engine.stopRenderLoop();
+          } catch {
+            /* already gone */
+          }
+          setLoadError('Preview renderer stopped');
+        }
+      }
     });
 
     return () => {
-      ctx.engine.stopRenderLoop();
-      ctx.scene.dispose();
-      ctx.engine.dispose();
+      disposed = true;
+      allowedToDraw = false;
+      abortMixamoLoad(scene);
+      scene.onBeforeRenderObservable.remove(observer);
+      athleteRef.current?.dispose();
+      athleteRef.current = null;
+      meshyCourtRef.current?.dispose();
+      meshyCourtRef.current = null;
+      worldScaleRef.current = 1;
+      courtRef.current = null;
+      dunkCamRef.current = null;
+      ctx.dispose();
     };
   }, []);
 
-  // Camera preset switcher
-  const handleCameraChange = (mode: 'BROADCAST' | 'COURTSIDE' | 'RIM_CAM') => {
-    setCameraMode(mode);
-    const ctx = contextRef.current;
-    if (!ctx) return;
-    const cam = ctx.camera;
-
-    if (mode === 'BROADCAST') {
-      cam.alpha = -Math.PI / 2;
-      cam.beta = Math.PI / 3.2;
-      cam.radius = 15;
-      cam.target = new Vector3(0, 1.8, 0);
+  const applyIdleFrame = (mode: IdleFrame) => {
+    setIdleFrame(mode);
+    if (phase !== 'IDLE') return;
+    if (mode === 'BOARDWALK') {
+      camPosRef.current = new Vector3(2.8, 1.8, -9.2);
+      camTargetRef.current = new Vector3(0, 1.4, 1.5);
     } else if (mode === 'COURTSIDE') {
-      cam.alpha = -Math.PI / 3.8;
-      cam.beta = Math.PI / 2.4;
-      cam.radius = 9;
-      cam.target = new Vector3(0, 1.4, 2);
-    } else if (mode === 'RIM_CAM') {
-      cam.alpha = Math.PI / 2;
-      cam.beta = Math.PI / 2.8;
-      cam.radius = 6.5;
-      cam.target = hoopPosRef.current;
+      camPosRef.current = new Vector3(8.4, 1.7, 1.2);
+      camTargetRef.current = new Vector3(0, 1.5, 2.4);
+    } else {
+      camPosRef.current = new Vector3(0.2, 3.4, 8.4);
+      camTargetRef.current = hoopPosRef.current.clone();
     }
   };
 
-  // Charge up mechanic
-  const handlePointerDown = () => {
-    if (gameState !== 'IDLE') return;
-    isHoldingCharge.current = true;
-    chargeStartTime.current = performance.now();
-    playSfx(() => SoundJuice.playCharge());
-
-    const interval = setInterval(() => {
-      if (!isHoldingCharge.current) {
-        clearInterval(interval);
-        return;
-      }
-      const elapsed = (performance.now() - chargeStartTime.current) / 1000;
-      const pct = Math.min(100, Math.round((elapsed / 1.1) * 100));
-      setCharge(pct);
-    }, 30);
-  };
-
-  // Release jump & execute slam
-  const handlePointerUp = () => {
-    if (!isHoldingCharge.current || gameState !== 'IDLE') return;
-    isHoldingCharge.current = false;
-    const finalCharge = charge;
-    setGameState('APPROACH');
-
-    const athlete = athleteRef.current;
-    if (!athlete) return;
-
-    playSfx(() => SoundJuice.playTakeoff());
-
-    // Animated Stride & Takeoff to Rim
-    let t = 0;
-    const approachInterval = setInterval(() => {
-      t += 0.04;
-      if (t < 0.45) {
-        // Linear acceleration along Z
-        const currentZ = -6 + (t / 0.45) * 8.5;
-        athlete.root.position.z = currentZ;
-        athlete.root.position.y = 0;
-        // Running leg animation
-        athlete.leftLeg.rotation.x = Math.sin(t * 20) * 0.6;
-        athlete.rightLeg.rotation.x = -Math.sin(t * 20) * 0.6;
-      } else if (t < 0.95) {
-        // Airborne jump arc
-        setGameState('AIRBORNE');
-        const jumpProgress = (t - 0.45) / 0.5;
-        athlete.root.position.z = 2.5 + jumpProgress * 2.8;
-        // Parabolic jump arc with peak height proportional to charge
-        const maxHeight = 3.3 + (finalCharge / 100) * 0.7;
-        athlete.root.position.y = Math.sin(jumpProgress * Math.PI) * maxHeight;
-
-        // Dunk trick animation
-        if (dunkStyle === '360_SPIN') {
-          athlete.root.rotation.y = jumpProgress * Math.PI * 2;
-        } else if (dunkStyle === 'WINDMILL') {
-          athlete.rightArm.rotation.x = -jumpProgress * Math.PI * 2.5;
-        } else if (dunkStyle === 'TOMAHAWK') {
-          athlete.rightArm.rotation.x = -Math.PI * 0.8 + Math.sin(jumpProgress * Math.PI) * 1.2;
-        }
+  const handlePointerDown = (event?: { clientX?: number }) => {
+    pointerDownRef.current = true;
+    lastPointerXRef.current = event?.clientX ?? null;
+    const attempt = attemptRef.current;
+    if (attempt.phase === 'IDLE') {
+      setResult(null);
+      setMetrics(null);
+      setCue(null);
+      playSfx(() => SoundJuice.playCharge());
+      attempt.startRunway();
+      return;
+    }
+    if (attempt.phase === 'GATHER') {
+      attempt.commitPlant();
+      return;
+    }
+    if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') {
+      const x = event?.clientX;
+      const canvas = canvasRef.current;
+      if (x != null && canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const nx = ((x - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+        attempt.inputAir(Math.max(-1, Math.min(1, nx)), true);
       } else {
-        // Slam Impact!
-        clearInterval(approachInterval);
-        setGameState('SLAMMED');
-        athlete.root.position.set(0, 2.7, 5.3);
-        if (athlete.basketball) {
-          athlete.basketball.position.copyFrom(hoopPosRef.current);
-        }
-        
-        playSfx(() => SoundJuice.playSlam());
-
-        // Calculate scores & feedback
-        const timingScore = Math.max(70, Math.min(100, Math.round(100 - Math.abs(finalCharge - 92) * 1.5)));
-        const calculatedGct = Math.max(75, Math.round(120 - (finalCharge / 100) * 35));
-        setGctMs(calculatedGct);
-        setScore(timingScore);
-
-        setScoresArray([
-          { judge: 'DOMINIQUE', pts: Math.min(10, Math.round(timingScore / 10)), note: 'Explosive vertical rise!' },
-          { judge: 'VINCE', pts: Math.min(10, Math.round((timingScore + 2) / 10)), note: 'Flawless extension at apex.' },
-          { judge: 'ELIJAH', pts: Math.min(10, Math.round((timingScore - 1) / 10)), note: `GCT: ${calculatedGct}ms · Elite recoil` }
-        ]);
-
-        setTimeout(() => {
-          setGameState('SCORED');
-        }, 1200);
-      }
-    }, 25);
-  };
-
-  const resetDunk = () => {
-    setGameState('IDLE');
-    setCharge(0);
-    setScore(null);
-    setScoresArray([]);
-    const athlete = athleteRef.current;
-    if (athlete) {
-      athlete.root.position.set(0, 0, -6);
-      athlete.root.rotation.set(0, 0, 0);
-      athlete.leftLeg.rotation.set(0, 0, 0);
-      athlete.rightLeg.rotation.set(0, 0, 0);
-      athlete.rightArm.rotation.set(0, 0, -Math.PI / 8);
-      if (athlete.basketball) {
-        athlete.basketball.position.set(0.8, 1.3, 0.2);
+        attempt.inputAir(0, true);
       }
     }
+  };
+
+  const handlePointerUp = () => {
+    if (!pointerDownRef.current) return;
+    pointerDownRef.current = false;
+    lastPointerXRef.current = null;
+    const attempt = attemptRef.current;
+    if (attempt.phase === 'RUNWAY') {
+      attempt.releaseToGather();
+      return;
+    }
+    if (attempt.phase === 'PLANT') {
+      attempt.releaseTakeoff();
+    }
+  };
+
+  const handlePointerMove = (event: { clientX: number }) => {
+    const attempt = attemptRef.current;
+    if (attempt.phase !== 'TAKEOFF' && attempt.phase !== 'HANG') return;
+    if (lastPointerXRef.current === null) {
+      lastPointerXRef.current = event.clientX;
+      attempt.inputAir(0);
+      return;
+    }
+    const dx = (event.clientX - lastPointerXRef.current) / 140;
+    lastPointerXRef.current = event.clientX;
+    attempt.inputAir(dx);
+  };
+
+  const eastbay = EASTBAY_MASTER_STANDARD;
+  const showCase = result !== null && metrics !== null;
+  const copy = VENICE_RESULT_COPY;
+
+  const clearCase = () => {
+    setResult(null);
+    setMetrics(null);
+    setCue(null);
+  };
+
+  const nextAttempt = () => {
+    clearCase();
+    attemptRef.current.reset();
+  };
+
+  const instantRetry = () => {
+    clearCase();
+    attemptRef.current.reset();
+    playSfx(() => SoundJuice.playCharge());
+    attemptRef.current.startRunway();
   };
 
   return (
     <div className="unreal-canvas relative w-full h-[720px] rounded-3xl overflow-hidden flex flex-col justify-between shadow-2xl">
-      {/* 3D WebGL Canvas with Dark-Blue Ink Outlines & Cel Shader Pipeline */}
-      <canvas 
-        ref={canvasRef} 
-        className="absolute inset-0 w-full h-full touch-none z-0 cursor-grab active:cursor-grabbing"
+      <canvas
+        ref={canvasRef}
+        className="absolute inset-0 w-full h-full touch-none z-0"
+        onPointerDown={(e) => handlePointerDown(e)}
+        onPointerUp={handlePointerUp}
+        onPointerMove={handlePointerMove}
       />
 
-      {/* Top Overlay HUD */}
       <div className="relative z-10 p-6 flex items-start justify-between pointer-events-none">
         <div className="flex items-center gap-3">
           <button
@@ -277,32 +478,31 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-[#00F2FF]/20 text-[#00F2FF] border border-[#00F2FF]/40 font-bold uppercase">
-                BABYLON.JS 3D ENGINE
+                VENICE NIGHT COURT
               </span>
-              <span className="text-xs font-mono text-zinc-400">• VENICE 3.05M REGULATION</span>
+              <span className="text-xs font-mono text-zinc-400">• 3.05M REGULATION</span>
             </div>
             <h1 className="text-xl sm:text-2xl font-orbitron font-black text-white uppercase tracking-tight mt-0.5">
-              3D SLAM DUNK CONTEST
+              SLAM DUNK CONTEST
             </h1>
           </div>
         </div>
 
-        {/* Controls & Camera Switcher */}
         <div className="flex items-center gap-2 pointer-events-auto">
           <div className="bg-black/60 border border-white/10 p-1 rounded-2xl flex items-center gap-1 backdrop-blur-md">
-            {(['BROADCAST', 'COURTSIDE', 'RIM_CAM'] as const).map((cam) => (
+            {(['BOARDWALK', 'COURTSIDE', 'RIM'] as const).map((cam) => (
               <button
                 key={cam}
-                onClick={() => handleCameraChange(cam)}
-                className={`px-3 py-1.5 rounded-xl font-mono text-[10px] uppercase font-bold transition-all cursor-pointer ${
-                  cameraMode === cam ? 'bg-[#00F2FF] text-black shadow-[0_0_15px_rgba(0,242,255,0.4)]' : 'text-zinc-400 hover:text-white'
+                disabled={phase !== 'IDLE'}
+                onClick={() => applyIdleFrame(cam)}
+                className={`px-3 py-1.5 rounded-xl font-mono text-[10px] uppercase font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                  idleFrame === cam ? 'bg-[#00F2FF] text-black' : 'text-zinc-400 hover:text-white'
                 }`}
               >
                 {cam}
               </button>
             ))}
           </div>
-
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
             className="p-3 rounded-2xl bg-black/60 border border-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
@@ -312,123 +512,126 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* Center Action Feedback Overlay */}
-      {gameState === 'SLAMMED' && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none animate-bounce">
-          <div className="p-6 rounded-3xl bg-black/80 border border-[#00F2FF] shadow-[0_0_80px_rgba(0,242,255,0.6)] text-center">
-            <Flame className="w-12 h-12 text-[#00F2FF] mx-auto animate-pulse" />
-            <h2 className="text-4xl sm:text-5xl font-orbitron font-black text-white tracking-widest uppercase mt-2">
-              SLAMMED!
-            </h2>
-            <p className="text-xs font-mono text-[#00FF9D] mt-1 font-bold">16.6ms KINETIC PEAK</p>
-          </div>
+      {!ready && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+          <span className="text-xs font-mono text-[#00F2FF] uppercase tracking-widest">
+            {loadError ?? 'Loading Mixamo dunker…'}
+          </span>
         </div>
       )}
 
-      {/* Scorecard Modal Overlay */}
-      {gameState === 'SCORED' && score !== null && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center p-6 bg-black/75 backdrop-blur-md animate-fade-in">
-          <div className="max-w-md w-full p-8 rounded-3xl bg-[#090B12] border border-[#00F2FF]/40 shadow-[0_0_100px_rgba(0,242,255,0.3)] text-center space-y-6">
-            <div className="w-12 h-12 rounded-2xl bg-[#00F2FF]/20 border border-[#00F2FF]/40 text-[#00F2FF] flex items-center justify-center mx-auto">
-              <Trophy className="w-6 h-6" />
-            </div>
+      {cue && phase === 'IDLE' && !showCase && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest">
+            {cue}
+          </span>
+        </div>
+      )}
 
-            <div>
-              <div className="text-[10px] font-mono tracking-widest text-[#00F2FF] uppercase font-bold">
-                ADJUDICATED CONTEST SCORE
+      {showCase && (
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 w-[min(92%,36rem)]">
+          <div className="px-4 py-3 rounded-2xl bg-black/70 border border-[#00F2FF]/30 backdrop-blur-md">
+            <div className="mb-1">
+              <div className={`text-sm font-orbitron font-black ${result?.isMake ? 'text-[#00FF9D]' : 'text-red-400'}`}>
+                {result?.isMake ? copy.makeHeadline : caseMissHeadline(result?.missReason ?? null)}
               </div>
-              <div className="text-5xl font-orbitron font-black text-white mt-1">
-                {score} <span className="text-xl text-zinc-500">/ 100</span>
+              <div className="text-[10px] font-mono text-zinc-300 mt-0.5">
+                {result?.isMake ? copy.makeSub : caseMissSub(result?.missReason ?? null)}
               </div>
             </div>
-
-            {/* 3-Judge Array */}
-            <div className="space-y-2 text-left">
-              {scoresArray.map((j, i) => (
-                <div key={i} className="p-3 rounded-2xl bg-white/[0.03] border border-white/10 flex items-center justify-between">
-                  <div>
-                    <div className="text-xs font-mono font-bold text-white">{j.judge}</div>
-                    <div className="text-[10px] font-mono text-zinc-400">{j.note}</div>
-                  </div>
-                  <div className="text-lg font-orbitron font-black text-[#FFD700]">
-                    {j.pts}.0
-                  </div>
-                </div>
-              ))}
+            <div className="text-[9px] font-mono text-zinc-400 mt-2">
+              {copy.eastbayName} · {copy.eastbayLine} · {copy.eastbayClass} · {copy.eastbayRole}
             </div>
-
-            {/* Biometric GCT Benchmark */}
-            <div className="p-3.5 rounded-2xl bg-[#00FF9D]/10 border border-[#00FF9D]/30 flex items-center justify-between text-xs font-mono">
-              <span className="text-zinc-300">REACTIVE GCT TIMING:</span>
-              <span className="font-bold text-[#00FF9D]">{gctMs} ms [ELITE]</span>
+            <div className="grid grid-cols-4 gap-2 text-center mt-2">
+              <div>
+                <div className="text-[8px] font-mono text-zinc-500">GCT</div>
+                <div className="text-sm font-orbitron text-white">{metrics?.gctMs}<span className="text-[9px] text-zinc-500 ml-0.5">ms</span></div>
+                <div className="text-[8px] font-mono text-zinc-600">{eastbay.gctMs} ms</div>
+              </div>
+              <div>
+                <div className="text-[8px] font-mono text-zinc-500">VERTICAL</div>
+                <div className="text-sm font-orbitron text-white">{metrics?.verticalIn}<span className="text-[9px] text-zinc-500 ml-0.5">in</span></div>
+                <div className="text-[8px] font-mono text-zinc-600">{eastbay.verticalIn} in</div>
+              </div>
+              <div>
+                <div className="text-[8px] font-mono text-zinc-500">RECOIL</div>
+                <div className="text-sm font-orbitron text-white">{metrics?.elasticRecoilBw}<span className="text-[9px] text-zinc-500 ml-0.5">x</span></div>
+                <div className="text-[8px] font-mono text-zinc-600">{eastbay.elasticRecoilBw}x</div>
+              </div>
+              <div>
+                <div className="text-[8px] font-mono text-zinc-500">TRUNK</div>
+                <div className="text-sm font-orbitron text-white">{metrics?.trunkLeanDeg}°</div>
+                <div className="text-[8px] font-mono text-zinc-600">{eastbay.trunkLeanDeg}°</div>
+              </div>
             </div>
-
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-2 mt-3">
               <button
-                onClick={resetDunk}
-                className="flex-1 py-4 bg-[#00F2FF] text-black font-orbitron font-black text-sm rounded-2xl hover:bg-[#00F2FF]/90 transition-all shadow-[0_0_25px_rgba(0,242,255,0.4)] flex items-center justify-center gap-2 cursor-pointer"
+                type="button"
+                onClick={nextAttempt}
+                className="flex-1 px-2 py-2 rounded-xl bg-white/10 border border-white/20 text-[10px] font-mono font-bold text-white hover:bg-white/20"
               >
-                <RotateCcw className="w-4 h-4" />
-                NEXT ATTEMPT
+                {copy.nextAttempt}
+              </button>
+              <button
+                type="button"
+                onClick={instantRetry}
+                className="flex-1 px-2 py-2 rounded-xl bg-[#00F2FF] text-black text-[10px] font-mono font-bold hover:bg-[#00F2FF]/90"
+              >
+                {copy.instantRetry}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Bottom Interactive Charge & Style Bar */}
-      <div className="relative z-10 p-6 flex flex-col sm:flex-row items-center justify-between gap-4 pointer-events-none">
-        
-        {/* Style Selector Tabs */}
-        <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-md pointer-events-auto">
-          {(['WINDMILL', 'TOMAHAWK', '360_SPIN', 'BETWEEN_LEGS'] as const).map((style) => (
-            <button
-              key={style}
-              onClick={() => {
-                playSfx(() => SoundJuice.playZoneBeep());
-                setDunkStyle(style);
-              }}
-              className={`px-3 py-2 rounded-xl text-[10px] font-mono font-bold transition-all cursor-pointer ${
-                dunkStyle === style 
-                  ? 'bg-[#00F2FF]/20 text-[#00F2FF] border border-[#00F2FF]/40 shadow-[0_0_15px_rgba(0,242,255,0.2)]' 
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              {style.replace('_', ' ')}
-            </button>
-          ))}
+      {phase === 'IDLE' || phase === 'RUNWAY' || phase === 'GATHER' || phase === 'PLANT' ? (
+        <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
+          <button
+            aria-label="hold"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              handlePointerDown(e);
+            }}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={() => {
+              if (pointerDownRef.current) handlePointerUp();
+            }}
+            className="w-[4.5rem] h-[4.5rem] rounded-full bg-white/10 border-2 border-white/35 shadow-[0_0_24px_rgba(255,255,255,0.12)] active:scale-95 active:bg-white/20"
+          />
         </div>
+      ) : null}
 
-        {/* Central Charge / Takeoff Action Button */}
-        {gameState === 'IDLE' && (
-          <div className="flex items-center gap-4 pointer-events-auto">
-            {/* Charge Meter */}
-            <div className="w-36 sm:w-48 space-y-1">
-              <div className="flex justify-between text-[10px] font-mono">
-                <span className="text-zinc-400">JUMP VELOCITY:</span>
-                <span className="text-[#00F2FF] font-bold">{charge}%</span>
-              </div>
-              <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-[#00F2FF] to-[#7000FF] transition-all duration-75"
-                  style={{ width: `${charge}%` }}
-                />
-              </div>
-            </div>
-
-            <button
-              onMouseDown={handlePointerDown}
-              onMouseUp={handlePointerUp}
-              onTouchStart={handlePointerDown}
-              onTouchEnd={handlePointerUp}
-              className="px-8 py-4 rounded-2xl bg-[#00F2FF] text-black font-orbitron font-black text-sm tracking-wider hover:bg-[#00F2FF]/90 transition-all shadow-[0_0_35px_rgba(0,242,255,0.4)] active:scale-95 flex items-center gap-2 cursor-pointer select-none"
-            >
-              <Play className="w-4 h-4 fill-black" />
-              <span>HOLD TO CHARGE</span>
-            </button>
+      {(phase === 'TAKEOFF' || phase === 'HANG') && (
+        <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 w-[min(92%,28rem)] pointer-events-auto">
+          <div
+            className="flex h-16 rounded-2xl overflow-hidden border-2 border-white/35 bg-black/45"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const nx = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+              attemptRef.current.inputAir(Math.max(-1, Math.min(1, nx)), true);
+              pointerDownRef.current = true;
+              lastPointerXRef.current = e.clientX;
+            }}
+            onPointerMove={(e) => {
+              if (!pointerDownRef.current) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const nx = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+              attemptRef.current.inputAir(Math.max(-1, Math.min(1, nx)), true);
+            }}
+            onPointerUp={() => {
+              pointerDownRef.current = false;
+              lastPointerXRef.current = null;
+            }}
+          >
+            <div className="flex-1 bg-[#00F2FF]/10" />
+            <div className="w-px bg-white/25" />
+            <div className="flex-[1.15] bg-white/10" />
+            <div className="w-px bg-white/25" />
+            <div className="flex-1 bg-[#00F2FF]/10" />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
