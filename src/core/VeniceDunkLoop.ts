@@ -243,6 +243,8 @@ export class VeniceDunkAttempt {
   gatherBlown = false;
   gatherMiss: GatherCommit | null = null;
   plantHolding = false;
+  /** Face-button hold. One hold runs into plant+hang; a tap blows gather. */
+  held = false;
   airFinish: AirFinish = 'NONE';
   airHeld = false;
   airSteer = 0;
@@ -288,6 +290,7 @@ export class VeniceDunkAttempt {
     this.gatherBlown = false;
     this.gatherMiss = null;
     this.plantHolding = false;
+    this.held = false;
     this.airFinish = 'NONE';
     this.airHeld = false;
     this.airSteer = 0;
@@ -308,8 +311,50 @@ export class VeniceDunkAttempt {
 
   startRunway(): void {
     if (this.phase !== 'IDLE') return;
+    const keepHeld = this.held;
     this.reset();
+    this.held = keepHeld;
     this.phase = 'RUNWAY';
+  }
+
+  /** Hold A: run, auto-plant in the window, clock GCT, release to hang. */
+  holdDown(): void {
+    this.held = true;
+    if (this.phase === 'IDLE') this.startRunway();
+    else if (this.phase === 'GATHER') this.commitPlant();
+    else if (this.phase === 'TAKEOFF' || this.phase === 'HANG') this.inputAir(this.airSteer, true);
+  }
+
+  /** Release: tap-before-window blows gather; release in plant leaves the ground. */
+  holdUp(): void {
+    if (!this.held) return;
+    this.held = false;
+    if (this.phase === 'RUNWAY') {
+      this.releaseToGather();
+      this.commitPlant();
+      return;
+    }
+    if (this.phase === 'GATHER') {
+      this.commitPlant();
+      return;
+    }
+    if (this.phase === 'PLANT') this.releaseTakeoff();
+  }
+
+  private autoPlantIfHeld(): void {
+    if (!this.held) return;
+    if (this.phase === 'IDLE') {
+      this.startRunway();
+      return;
+    }
+    const zone = gatherWindowState(this.posZ, this.plantMarkZ);
+    if (zone !== 'WINDOW') return;
+    if (this.phase === 'RUNWAY') {
+      this.releaseToGather();
+      this.commitPlant();
+    } else if (this.phase === 'GATHER') {
+      this.commitPlant();
+    }
   }
 
   /** Release starts gather. Does not compute make/miss and does not plant. */
@@ -466,6 +511,7 @@ export class VeniceDunkAttempt {
         break;
     }
 
+    this.autoPlantIfHeld();
     return this.snapshot();
   }
 

@@ -105,7 +105,7 @@ export const EmulatorPadOverlay: React.FC<EmulatorPadOverlayProps> = ({
   }, [onStick]);
 
   return (
-    <div className="emulator-pad pointer-events-none" data-testid="emulator-pad">
+    <div className="emulator-pad pointer-events-none" data-testid="emulator-pad" style={{ zIndex: 40 }}>
       <div className="emulator-pad-left pointer-events-auto">
         <div
           ref={baseRef}

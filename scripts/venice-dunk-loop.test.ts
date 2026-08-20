@@ -819,12 +819,25 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       firstAllowedIdx > courtAssignIdx &&
       (mixamoTimeoutIdx < 0 || firstAllowedIdx < mixamoTimeoutIdx) &&
       !modeSrc.includes('1000 / 24');
-    const overlayPassed = overlayAlwaysOn && emulatorLook && fullBleedHub && noChopOnMiss && nextPaintCam && hangSafeOverlay;
+    const caseDoesNotBuryPad =
+      modeSrc.includes('z-10') &&
+      modeSrc.includes('pointer-events-none') &&
+      modeSrc.includes('plantedGct') &&
+      !modeSrc.includes('bottom-24') &&
+      overlaySrc.includes('zIndex: 40');
+    const overlayAfterCase =
+      modeSrc.indexOf('showCase') > -1 &&
+      modeSrc.indexOf('<EmulatorPadOverlay') > modeSrc.indexOf('showCase') &&
+      modeSrc.includes('nextAttempt') &&
+      modeSrc.includes('instantRetry') &&
+      modeSrc.includes('holdDown') &&
+      modeSrc.includes('holdUp');
+    const overlayPassed = overlayAlwaysOn && emulatorLook && fullBleedHub && noChopOnMiss && nextPaintCam && hangSafeOverlay && caseDoesNotBuryPad && overlayAfterCase;
     results.push({
       name: 'Console overlay: full-bleed dunk, stick+HOLD/PLANT/DUNK always on canvas, never gated on ready, no stopRenderLoop on Mixamo miss',
       passed: overlayPassed,
-      actual: `alwaysOn=${overlayAlwaysOn} emulator=${emulatorLook} fullBleed=${fullBleedHub} noChop=${noChopOnMiss} cam=${nextPaintCam} hangSafe=${hangSafeOverlay} failWindowHasStop=${mixamoFailWindow.includes('stopRenderLoop')}`,
-      expected: 'EmulatorPadOverlay always mounted; joystick+ABXY corner-pinned; dunkLive hides portal; directed IDLE cam; meshy+athlete parallel; load-miss catch does not stopRenderLoop',
+      actual: `alwaysOn=${overlayAlwaysOn} emulator=${emulatorLook} fullBleed=${fullBleedHub} noChop=${noChopOnMiss} cam=${nextPaintCam} hangSafe=${hangSafeOverlay} caseClear=${caseDoesNotBuryPad} afterCase=${overlayAfterCase} failWindowHasStop=${mixamoFailWindow.includes('stopRenderLoop')}`,
+      expected: 'EmulatorPadOverlay always mounted after CASE; joystick+ABXY corner-pinned above chrome; dunkLive hides portal; directed IDLE cam; load-miss catch does not stopRenderLoop',
     });
 
     results.push({
@@ -832,6 +845,58 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       passed: routed,
       actual: `late=${late.outcome?.missReason}/${caseMissHeadline('LATE')}/${caseMissSub('LATE')} early=${mash.outcome?.missReason}/${caseMissSub('EARLY')} mushy=${mushy.outcome?.missReason}/${caseMissSub('MUSHY_PLANT')} air=${air.outcome?.missReason}/${caseMissHeadline('AIR')} short=${caseMissHeadline('SHORT')}/${caseMissSub('SHORT')} rim=${rim.outcome?.missReason}/${caseMissHeadline('RIM_OUT')}`,
       expected: 'plant headline on LATE/EARLY/MUSHY only; SHORT uses AIR pair; locked lines unchanged; BLOWN sets CASE',
+    });
+  }
+
+  {
+    const hold = new VeniceDunkAttempt();
+    hold.holdDown();
+    let sawHang = false;
+    let rose = false;
+    let lastY = Number.POSITIVE_INFINITY;
+    let apex = 0;
+    for (let i = 0; i < 240; i++) {
+      if (hold.phase === 'TAKEOFF' || hold.phase === 'HANG') hold.inputAir(0, true);
+      hold.tick(1 / 60);
+      if (hold.phase === 'HANG') {
+        const y = hold.rootY();
+        if (!sawHang) {
+          sawHang = true;
+          apex = hold.takeoffApexY;
+          lastY = y;
+        } else if (y > lastY + 1e-6) {
+          rose = true;
+        } else {
+          lastY = y;
+        }
+      }
+      if (hold.outcome) break;
+    }
+    const tap = new VeniceDunkAttempt();
+    tap.holdDown();
+    tap.holdUp();
+    for (let i = 0; i < 24; i++) {
+      tap.tick(1 / 60);
+      if (tap.outcome) break;
+    }
+    const holdGct = hold.plant?.gctMs ?? 0;
+    const tapGct = tap.plant?.gctMs ?? tap.metrics?.gctMs ?? 0;
+    const passed =
+      sawHang &&
+      !rose &&
+      apex > 0.4 &&
+      hold.hangElapsed > 0 &&
+      holdGct > 0 &&
+      hold.gatherMiss !== 'LATE' &&
+      tap.outcome?.missReason === 'EARLY' &&
+      tap.outcome?.missReason !== hold.outcome?.missReason &&
+      tapGct === 0 &&
+      holdGct !== tapGct;
+    results.push({
+      name: 'QA: one hold leaves ground and hangs with real GCT; one tap blows gather on a different card',
+      passed,
+      actual: `hang=${sawHang} hangT=${hold.hangElapsed.toFixed(3)} rose=${rose} holdGct=${holdGct} holdReason=${hold.outcome?.missReason} tapReason=${tap.outcome?.missReason} tapGct=${tapGct}`,
+      expected: 'hold → hang from apex, GCT > 0; tap → EARLY gather blow, not the same card, no dummy hold GCT 0',
     });
   }
 

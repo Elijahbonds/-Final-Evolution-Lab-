@@ -278,7 +278,12 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
             attempt.startRunway();
           }
         }
-        if (snap.phase === 'RUNWAY') athlete.playRun(1.05);
+        if (snap.phase === 'RUNWAY') {
+          setResult(null);
+          setMetrics(null);
+          setCue(null);
+          athlete.playRun(1.05);
+        }
         if (snap.phase === 'GATHER') {
           athlete.playRun(0.72);
           court.reactCrowd('watch', 0.7);
@@ -392,35 +397,29 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       setMetrics(null);
       setCue(null);
       playSfx(() => SoundJuice.playCharge());
-      attempt.startRunway();
-      return;
     }
-    if (attempt.phase === 'GATHER') {
-      attempt.commitPlant();
-      return;
-    }
-    if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') {
-      attempt.inputAir(stickXRef.current, true);
-    }
+    attempt.holdDown();
   };
 
   const handleHoldUp = () => {
     if (!holdPressedRef.current && !pointerDownRef.current) return;
     holdPressedRef.current = false;
     pointerDownRef.current = false;
-    const attempt = attemptRef.current;
-    if (attempt.phase === 'RUNWAY') {
-      attempt.releaseToGather();
-      return;
-    }
-    if (attempt.phase === 'PLANT') {
-      attempt.releaseTakeoff();
-    }
+    attemptRef.current.holdUp();
   };
 
   const handlePlantDown = () => {
     const attempt = attemptRef.current;
-    if (attempt.phase === 'GATHER') {
+    if (attempt.phase === 'IDLE' || attempt.phase === 'RUNWAY' || attempt.phase === 'GATHER') {
+      if (attempt.phase === 'IDLE') {
+        setResult(null);
+        setMetrics(null);
+        setCue(null);
+        attempt.startRunway();
+        attempt.releaseToGather();
+      } else if (attempt.phase === 'RUNWAY') {
+        attempt.releaseToGather();
+      }
       attempt.commitPlant();
     }
   };
@@ -479,6 +478,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
   const eastbay = EASTBAY_MASTER_STANDARD;
   const showCase = result !== null && metrics !== null;
+  const plantedGct = (metrics?.gctMs ?? 0) > 0 && result?.missReason !== 'EARLY' && result?.missReason !== 'LATE';
   const copy = VENICE_RESULT_COPY;
 
   const clearCase = () => {
@@ -543,7 +543,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       )}
 
       {showCase && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 w-[min(92%,28rem)] pointer-events-auto">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 w-[min(70%,20rem)] pointer-events-none">
           <div className="px-3 py-2 rounded-xl bg-black/55 border border-white/15">
             <div className="mb-1">
               <div className={`text-sm font-orbitron font-black ${result?.isMake ? 'text-[#00FF9D]' : 'text-red-400'}`}>
@@ -556,6 +556,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
             <div className="text-[9px] font-mono text-zinc-400 mt-1">
               {copy.eastbayName} · {copy.eastbayLine} · {copy.eastbayClass} · {copy.eastbayRole}
             </div>
+            {plantedGct && (
             <div className="grid grid-cols-4 gap-2 text-center mt-2">
               <div>
                 <div className="text-[8px] font-mono text-zinc-500">GCT</div>
@@ -578,7 +579,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
                 <div className="text-[8px] font-mono text-zinc-600">{eastbay.trunkLeanDeg}°</div>
               </div>
             </div>
-            <div className="flex gap-2 mt-2">
+            )}
+            <div className="flex gap-2 mt-2 pointer-events-auto">
               <button
                 type="button"
                 onClick={nextAttempt}

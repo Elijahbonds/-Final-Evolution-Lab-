@@ -99,7 +99,7 @@
   .emulator-pad {
     position: absolute;
     inset: 0;
-    z-index: 30;
+    z-index: 40;
     pointer-events: none;
   }
 
