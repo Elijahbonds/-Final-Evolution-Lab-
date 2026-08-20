@@ -65,7 +65,7 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'babylon
   }, [activeMode, onModeChange]);
 
   return (
-    <div className="w-full space-y-6">
+    <div className={activeMode === 'babylon_dunk' ? 'w-full h-full min-h-0' : 'w-full space-y-6'}>
       {/* Mode Sub-Router */}
       <AnimatePresence mode="wait">
         {activeMode === 'select' && (
@@ -866,9 +866,10 @@ export const ModeManager: React.FC<ModeManagerProps> = ({ initialMode = 'babylon
         {activeMode === 'babylon_dunk' && (
           <motion.div
             key="venice_dunk_mode"
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.98 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="w-full h-full"
           >
             <BabylonDunkMode onBack={() => setActiveMode('select')} />
           </motion.div>

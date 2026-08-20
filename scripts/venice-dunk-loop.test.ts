@@ -759,6 +759,63 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       !copySrc.includes("'Gather was early.'") &&
       modeSrc.includes('caseMissHeadline') &&
       modeSrc.includes('setResult(snap.outcome)');
+    const appSrc = (() => {
+      try {
+        return readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+      } catch {
+        return '';
+      }
+    })();
+    const overlaySrc = (() => {
+      try {
+        return readFileSync(new URL('../src/components/modes/EmulatorPadOverlay.tsx', import.meta.url), 'utf8');
+      } catch {
+        return '';
+      }
+    })();
+    const mixamoFailIdx = modeSrc.indexOf('Mixamo dunker failed to load');
+    const mixamoFailWindow = mixamoFailIdx > -1 ? modeSrc.slice(mixamoFailIdx, mixamoFailIdx + 280) : '';
+    const courtAssignIdx = modeSrc.indexOf('courtRef.current = court');
+    const firstAllowedIdx = modeSrc.indexOf('allowedToDraw = true');
+    const mixamoTimeoutIdx = modeSrc.indexOf("'Mixamo dunker'");
+    const overlayAlwaysOn =
+      modeSrc.includes('<EmulatorPadOverlay') &&
+      !modeSrc.includes('{ready &&') &&
+      !modeSrc.includes('ready ?') &&
+      !/ready\s*&&[\s\S]{0,80}EmulatorPadOverlay/.test(modeSrc) &&
+      !/phase === 'IDLE'[\s\S]{0,120}aria-label="hold"/.test(modeSrc);
+    const emulatorLook =
+      overlaySrc.includes('aria-label="joystick"') &&
+      overlaySrc.includes('ariaLabel="hold"') &&
+      overlaySrc.includes('ariaLabel="plant"') &&
+      overlaySrc.includes('ariaLabel="dunk"') &&
+      overlaySrc.includes('emulator-pad') &&
+      overlaySrc.includes('HOLD') &&
+      overlaySrc.includes('PLANT') &&
+      overlaySrc.includes('DUNK') &&
+      overlaySrc.includes('emulator-abxy');
+    const fullBleedHub =
+      appSrc.includes('dunkLive') &&
+      appSrc.includes("arenaMode === 'babylon_dunk'") &&
+      appSrc.includes('{!dunkLive &&') &&
+      appSrc.includes('fixed inset-0') &&
+      !modeSrc.includes('h-[720px]') &&
+      !modeSrc.includes('unreal-canvas');
+    const noChopOnMiss =
+      !mixamoFailWindow.includes('stopRenderLoop') &&
+      firstAllowedIdx > -1 &&
+      courtAssignIdx > -1 &&
+      firstAllowedIdx > courtAssignIdx &&
+      (mixamoTimeoutIdx < 0 || firstAllowedIdx < mixamoTimeoutIdx) &&
+      !modeSrc.includes('1000 / 24');
+    const overlayPassed = overlayAlwaysOn && emulatorLook && fullBleedHub && noChopOnMiss;
+    results.push({
+      name: 'Console overlay: full-bleed dunk, stick+HOLD/PLANT/DUNK always on canvas, never gated on ready, no stopRenderLoop on Mixamo miss',
+      passed: overlayPassed,
+      actual: `alwaysOn=${overlayAlwaysOn} emulator=${emulatorLook} fullBleed=${fullBleedHub} noChop=${noChopOnMiss} failWindowHasStop=${mixamoFailWindow.includes('stopRenderLoop')}`,
+      expected: 'EmulatorPadOverlay always mounted; joystick+ABXY; dunkLive hides portal; court paints before Mixamo; load-miss catch does not stopRenderLoop',
+    });
+
     results.push({
       name: 'Miss routing: locked lines only; plant headline on LATE/EARLY/MUSHY; CASE not skipped',
       passed: routed,

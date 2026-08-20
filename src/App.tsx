@@ -26,6 +26,10 @@ const App: React.FC = () => {
 
   const [pendingView, setPendingView] = useState<View>('dashboard');
 
+  // Venice dunk is a TV, not a card in SOVEREIGN PORTAL. Hide the hub
+  // chrome (sidebar / vault / dashboard padding) only for this mode.
+  const dunkLive = view === 'arena' && arenaMode === 'babylon_dunk';
+
   const handleAcceptDisclaimer = () => {
     localStorage.setItem('felHasAcceptedMedicalDisclaimer', 'true');
     setShowDisclaimer(false);
@@ -59,6 +63,7 @@ const App: React.FC = () => {
           </motion.div>
         ) : (
           <div className="flex min-h-screen">
+            {!dunkLive && (
             <Sidebar 
               activeView={view} 
               onViewChange={(v) => setView(v as View)} 
@@ -66,8 +71,9 @@ const App: React.FC = () => {
               onOpenBank={() => setShowBank(true)}
               onLogout={() => setView('landing')}
             />
+            )}
             
-            <main className="flex-1 ml-64 min-h-screen relative">
+            <main className={dunkLive ? 'flex-1 min-h-screen relative' : 'flex-1 ml-64 min-h-screen relative'}>
               <AnimatePresence mode="wait">
                 {view === 'dashboard' && (
                   <motion.div
@@ -127,7 +133,9 @@ const App: React.FC = () => {
                     exit={{ opacity: 0, y: -20 }}
                     transition={{ duration: 0.5 }}
                     className={
-                      IMMERSIVE_3D_MODES.has(arenaMode)
+                      arenaMode === 'babylon_dunk'
+                        ? 'fixed inset-0 z-10'
+                        : IMMERSIVE_3D_MODES.has(arenaMode)
                         ? 'p-2 sm:p-3 lg:p-4 max-w-[1600px] mx-auto'
                         : 'p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto'
                     }
@@ -173,8 +181,8 @@ const App: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* PWA Install Banner */}
-      <SmartInstallBanner />
+      {/* PWA Install Banner — never cover the dunk TV */}
+      {!dunkLive && <SmartInstallBanner />}
 
       {/* Background Ambient Glow */}
       <div className="fixed inset-0 pointer-events-none z-[-1] overflow-hidden">
