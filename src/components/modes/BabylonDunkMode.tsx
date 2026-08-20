@@ -38,8 +38,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const hoopPosRef = useRef(new Vector3(0, 3.05, 5.5));
   const pointerDownRef = useRef(false);
   const lastPhaseRef = useRef<DunkPhase>('IDLE');
-  const camPosRef = useRef(new Vector3(2.8, 1.8, -9.2));
-  const camTargetRef = useRef(new Vector3(0, 1.4, 1.5));
+  const camPosRef = useRef(new Vector3(2.6, 1.65, -9.8));
+  const camTargetRef = useRef(new Vector3(0, 1.25, -3.0));
 
   const [phase, setPhase] = useState<DunkPhase>('IDLE');
   const [result, setResult] = useState<ContactOutcome | null>(null);
@@ -70,13 +70,17 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     const { scene, shadowGenerator, camera, engine } = ctx;
     camera.detachControl();
 
-    const dunkCam = new FreeCamera('veniceDunkCam', new Vector3(2.8, 1.8, -9.2), scene);
+    const bootAthletePos = new Vector3(0, 0, -6.2);
+    const bootFrame = directedFraming('IDLE', bootAthletePos, hoopPosRef.current);
+    camPosRef.current.copyFrom(bootFrame.pos);
+    camTargetRef.current.copyFrom(bootFrame.target);
+    const dunkCam = new FreeCamera('veniceDunkCam', bootFrame.pos.clone(), scene);
     dunkCam.minZ = 0.08;
     dunkCam.maxZ = 220;
     dunkCam.fov = 0.88;
     dunkCam.inputs.clear();
     const lookAt = new TransformNode('veniceDunkLook', scene);
-    lookAt.position.copyFrom(camTargetRef.current);
+    lookAt.position.copyFrom(bootFrame.target);
     dunkCam.lockedTarget = lookAt;
     scene.activeCamera = dunkCam;
     dunkCamRef.current = dunkCam;
@@ -116,56 +120,47 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         // or a load miss will look like a dead title card.
         allowedToDraw = true;
 
-        // Meshy court + surround: fetch + File + glTF import on the LIVE
-        // scene, fully resolved (load, attach, hideCheap) BEFORE the
-        // athlete's hang-required timeout below can start, let alone
-        // dispose anything. This load has its own timeout and is
-        // best-effort — any failure keeps the cheap court visible and
-        // must never throw out of boot() or touch athlete state.
-        try {
-          const meshy = await loadMeshyVeniceCourt(scene, {
-            courtWidth: 15.2,
-            courtDepth: 28,
-            surroundWidth: 60,
-            surroundDepth: 60,
-            courtCenterZ: 5.0,
-          });
+        // Meshy starts before the athlete hang-required timeout (source
+        // order + kickoff), but the athlete loads in parallel so BODY is
+        // not a 20s title card behind a mural fetch. hideCheap runs as
+        // soon as a live mural lands. Stubs / misses stay fail-safe.
+        const meshyPromise = loadMeshyVeniceCourt(scene, {
+          courtWidth: 15.2,
+          courtDepth: 28,
+          surroundWidth: 60,
+          surroundDepth: 60,
+          courtCenterZ: 5.0,
+        }).then((meshy) => {
           if (disposed || bootAborted || scene.isDisposed) {
             meshy.dispose();
-          } else {
-            meshyCourtRef.current = meshy;
-            worldScaleRef.current = meshy.worldScale;
-            hideCheapVenicePrimitives(scene, {
-              court: meshy.courtLoaded,
-              surround: meshy.surroundLoaded,
-            });
-            // Hoop, backboard, and post fit the mural's own native scale —
-            // not the other way around. Rim Y stays gameplay-driven
-            // (hoopRestY + rimYOffset below); this only sets visual size
-            // and, for backboard/post, repositions them at the SAME
-            // proportional offset from the hoop so a bigger assembly does
-            // not clip through itself.
-            if ((meshy.courtLoaded || meshy.surroundLoaded) && meshy.worldScale > 1) {
-              const s = meshy.worldScale;
-              const rim = courtRef.current?.rim;
-              const backboard = courtRef.current?.backboard;
-              const post = scene.getMeshByName('venice_post');
-              rim?.scaling.set(s, s, s);
-              if (backboard) {
-                backboard.scaling.set(s, s, s);
-                const offset = backboard.position.subtract(hoop);
-                backboard.position.copyFrom(hoop.add(offset.scale(s)));
-              }
-              if (post) {
-                post.scaling.set(s, s, s);
-                const offset = post.position.subtract(hoop);
-                post.position.copyFrom(hoop.add(offset.scale(s)));
-              }
+            return;
+          }
+          meshyCourtRef.current = meshy;
+          worldScaleRef.current = meshy.worldScale;
+          hideCheapVenicePrimitives(scene, {
+            court: meshy.courtLoaded,
+            surround: meshy.surroundLoaded,
+          });
+          if ((meshy.courtLoaded || meshy.surroundLoaded) && meshy.worldScale > 1) {
+            const s = meshy.worldScale;
+            const rim = courtRef.current?.rim;
+            const backboard = courtRef.current?.backboard;
+            const post = scene.getMeshByName('venice_post');
+            rim?.scaling.set(s, s, s);
+            if (backboard) {
+              backboard.scaling.set(s, s, s);
+              const offset = backboard.position.subtract(hoop);
+              backboard.position.copyFrom(hoop.add(offset.scale(s)));
+            }
+            if (post) {
+              post.scaling.set(s, s, s);
+              const offset = post.position.subtract(hoop);
+              post.position.copyFrom(hoop.add(offset.scale(s)));
             }
           }
-        } catch {
+        }).catch(() => {
           /* Meshy mural is best-effort; cheap procedural court stays up */
-        }
+        });
 
         if (disposed || bootAborted || scene.isDisposed) {
           return;
@@ -212,6 +207,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           'Mixamo dunker',
           killHungLoad
         );
+        await meshyPromise;
       } catch (err) {
         // Athlete miss: keep the court rendering. Never stopRenderLoop
         // on a load miss — chop here is a dead title card.
@@ -504,7 +500,7 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   };
 
   return (
-    <div className="relative w-full h-full min-h-screen bg-black overflow-hidden">
+    <div className="fixed inset-0 z-[4000] w-full h-full bg-black overflow-hidden">
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full touch-none z-0"
@@ -518,8 +514,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-black/40 text-white/70 border border-white/15 uppercase tracking-widest">
-            VENICE NIGHT COURT
+          <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-black/40 text-white/55 border border-white/10 uppercase tracking-widest">
+            VENICE
           </span>
         </div>
         <button

@@ -799,8 +799,19 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       appSrc.includes("arenaMode === 'babylon_dunk'") &&
       appSrc.includes('{!dunkLive &&') &&
       appSrc.includes('fixed inset-0') &&
+      modeSrc.includes('z-[4000]') &&
       !modeSrc.includes('h-[720px]') &&
-      !modeSrc.includes('unreal-canvas');
+      !modeSrc.includes('unreal-canvas') &&
+      !modeSrc.includes('SOVEREIGN PORTAL') &&
+      !appSrc.includes('HUD/ARENA');
+    const nextPaintCam =
+      modeSrc.includes("directedFraming('IDLE'") &&
+      !modeSrc.includes('2.8, 1.8, -9.2') &&
+      modeSrc.includes('meshyPromise') &&
+      modeSrc.includes('playSlam');
+    const hangSafeOverlay =
+      overlaySrc.includes('emulator-pad-left') &&
+      overlaySrc.includes('emulator-pad-right');
     const noChopOnMiss =
       !mixamoFailWindow.includes('stopRenderLoop') &&
       firstAllowedIdx > -1 &&
@@ -808,12 +819,12 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       firstAllowedIdx > courtAssignIdx &&
       (mixamoTimeoutIdx < 0 || firstAllowedIdx < mixamoTimeoutIdx) &&
       !modeSrc.includes('1000 / 24');
-    const overlayPassed = overlayAlwaysOn && emulatorLook && fullBleedHub && noChopOnMiss;
+    const overlayPassed = overlayAlwaysOn && emulatorLook && fullBleedHub && noChopOnMiss && nextPaintCam && hangSafeOverlay;
     results.push({
       name: 'Console overlay: full-bleed dunk, stick+HOLD/PLANT/DUNK always on canvas, never gated on ready, no stopRenderLoop on Mixamo miss',
       passed: overlayPassed,
-      actual: `alwaysOn=${overlayAlwaysOn} emulator=${emulatorLook} fullBleed=${fullBleedHub} noChop=${noChopOnMiss} failWindowHasStop=${mixamoFailWindow.includes('stopRenderLoop')}`,
-      expected: 'EmulatorPadOverlay always mounted; joystick+ABXY; dunkLive hides portal; court paints before Mixamo; load-miss catch does not stopRenderLoop',
+      actual: `alwaysOn=${overlayAlwaysOn} emulator=${emulatorLook} fullBleed=${fullBleedHub} noChop=${noChopOnMiss} cam=${nextPaintCam} hangSafe=${hangSafeOverlay} failWindowHasStop=${mixamoFailWindow.includes('stopRenderLoop')}`,
+      expected: 'EmulatorPadOverlay always mounted; joystick+ABXY corner-pinned; dunkLive hides portal; directed IDLE cam; meshy+athlete parallel; load-miss catch does not stopRenderLoop',
     });
 
     results.push({

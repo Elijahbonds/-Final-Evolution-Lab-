@@ -95,25 +95,26 @@
     );
   }
 
-  /* RetroArch / Delta emulator controller overlay — on the 3D canvas */
+  /* RetroArch / Delta overlay — corner-pinned so hang/rim stay clear */
   .emulator-pad {
     position: absolute;
     inset: 0;
     z-index: 30;
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    padding: 0 4.5vw 5.5vh;
     pointer-events: none;
   }
 
   .emulator-pad-left,
   .emulator-pad-right {
+    position: absolute;
+    bottom: 1.8vh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.45rem;
+    gap: 0.35rem;
   }
+
+  .emulator-pad-left { left: 2vw; }
+  .emulator-pad-right { right: 2vw; }
 
   .emulator-pad-caption {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -126,8 +127,8 @@
 
   .emulator-stick-base {
     position: relative;
-    width: 9.25rem;
-    height: 9.25rem;
+    width: 7.1rem;
+    height: 7.1rem;
     border-radius: 9999px;
     background: rgba(8, 10, 16, 0.38);
     border: 2px solid rgba(255, 255, 255, 0.28);
@@ -177,9 +178,9 @@
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 3.35rem;
-    height: 3.35rem;
-    margin: -1.675rem 0 0 -1.675rem;
+    width: 2.55rem;
+    height: 2.55rem;
+    margin: -1.275rem 0 0 -1.275rem;
     border-radius: 9999px;
     background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.42), rgba(180, 190, 210, 0.22) 55%, rgba(20, 24, 32, 0.4));
     border: 2px solid rgba(255, 255, 255, 0.4);
@@ -189,8 +190,8 @@
 
   .emulator-abxy {
     position: relative;
-    width: 10.5rem;
-    height: 10.5rem;
+    width: 8.1rem;
+    height: 8.1rem;
   }
 
   .emulator-abxy-y,
@@ -206,8 +207,8 @@
   .emulator-abxy-b { right: 0; top: 50%; transform: translateY(-50%); }
 
   .emulator-face-btn {
-    width: 3.55rem;
-    height: 3.55rem;
+    width: 2.7rem;
+    height: 2.7rem;
     border-radius: 9999px;
     border: 2px solid rgba(255, 255, 255, 0.32);
     display: flex;

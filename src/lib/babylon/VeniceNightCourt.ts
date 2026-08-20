@@ -31,7 +31,7 @@ import {
   TransformNode,
 } from '@babylonjs/core';
 import { createMixamoAthlete, MixamoAthlete, CrowdReact } from './MixamoAthlete';
-import { fetchLocalBytes, localAssetUrl, withTimeout } from './localAssets';
+import { fetchLocalAssetBytes, withTimeout } from './localAssets';
 
 export interface VeniceNightCourt {
   rim: Mesh;
@@ -75,13 +75,14 @@ export interface MeshyVeniceCourt {
 
 /**
  * `asset.generator` tag the repo's own placeholder-fixture writer
- * (scripts/gen-meshy-placeholder-glb.mjs) stamps onto the checked-in
- * venice-blue-court.glb / venice-court-surround.glb stubs. Git never holds
- * real Meshy bytes — the live mural only exists inside Studio — so this
- * string is the one reliable signature that says "this is the stub, not an
- * export a human uploaded".
+ * (scripts/gen-meshy-placeholder-glb.mjs) stamps onto in-memory stubs.
+ * Git never holds Meshy mural bytes — live files exist only in Studio
+ * (~3.0MB court / ~1.8MB surround) — so this string is the signature
+ * that says "this is a stub, not an export a human uploaded".
  */
 export const MESHY_PLACEHOLDER_GENERATOR = 'FEL-meshy-placeholder';
+/** Studio live mural is millions of bytes. Anything below this is not PLACE. */
+export const MESHY_LIVE_MIN_BYTES = 1_500_000;
 
 /**
  * A real Meshy export ships full geometry + textures; the checked-in stubs
@@ -127,8 +128,8 @@ export function isPlaceholderMeshyGlb(bytes: ArrayBuffer): boolean {
 }
 
 async function loadMeshyFile(filename: string): Promise<File> {
-  const bytes = await fetchLocalBytes(localAssetUrl(filename), MESHY_LOAD_TIMEOUT_MS);
-  return new File([bytes], filename);
+  const bytes = await fetchLocalAssetBytes(filename, MESHY_LOAD_TIMEOUT_MS);
+  return new File([bytes], filename, { type: 'model/gltf-binary' });
 }
 
 /**
@@ -162,6 +163,8 @@ async function attachMeshyPiece(
   if (isPlaceholderMeshyGlb(bytes)) {
     throw new Error(`${rootName} is the FEL-meshy-placeholder stub, not a real Meshy export`);
   }
+  // Fresh File after the sniff so SceneLoader never sees a consumed blob.
+  const glb = new File([bytes], filename, { type: 'model/gltf-binary' });
 
   let activePlugin: { dispose?: () => void } | undefined;
   const pluginObs = SceneLoader.OnPluginActivatedObservable.add((plugin) => {
@@ -184,7 +187,7 @@ async function attachMeshyPiece(
   let container: AssetContainer;
   try {
     container = await withTimeout(
-      SceneLoader.LoadAssetContainerAsync('', file, scene),
+      SceneLoader.LoadAssetContainerAsync('', glb, scene),
       MESHY_LOAD_TIMEOUT_MS,
       rootName,
       disposeLate

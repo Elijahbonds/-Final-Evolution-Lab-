@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Live Meshy mural lives in Studio (venice-blue-court.glb ~3.0MB,
+# venice-court-surround.glb ~1.8MB). Git must never ship stubs or
+# invented bytes at these paths — a ZIP of this repo must not overwrite them.
+public/assets/venice-blue-court.glb
+public/assets/venice-court-surround.glb

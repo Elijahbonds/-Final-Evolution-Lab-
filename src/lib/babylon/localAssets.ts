@@ -13,6 +13,12 @@ export function localAssetUrl(filename: string): string {
   return `${root}assets/${filename.replace(/^\/+/, '')}`;
 }
 
+/** Same-origin candidates so Studio's live Meshy mural is found without inventing bytes. */
+export function localAssetCandidates(filename: string): string[] {
+  const name = filename.replace(/^\/+/, '');
+  return [...new Set([localAssetUrl(name), `/assets/${name}`, `./assets/${name}`])];
+}
+
 export function isRemoteAssetUrl(url: string): boolean {
   if (/mixamo\.com|models\.mixamo|cdn\.|readyplayer/i.test(url)) return true;
   if (!/^https?:\/\//i.test(url)) return false;
@@ -91,6 +97,21 @@ export async function fetchLocalBytes(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function fetchLocalAssetBytes(
+  filename: string,
+  ms = LOCAL_ASSET_TIMEOUT_MS
+): Promise<ArrayBuffer> {
+  let last: Error | undefined;
+  for (const url of localAssetCandidates(filename)) {
+    try {
+      return await fetchLocalBytes(url, ms);
+    } catch (err) {
+      last = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+  throw last ?? new Error(`local asset missing: ${filename}`);
 }
 
 export async function fetchLocalText(url: string, ms = LOCAL_ASSET_TIMEOUT_MS): Promise<string> {
