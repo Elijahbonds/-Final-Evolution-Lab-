@@ -37,7 +37,8 @@ export interface PlantSample {
 }
 
 export interface AttemptMetrics {
-  gctMs: number;
+  /** Measured plant only. Null when gather blew — never a dummy 0. */
+  gctMs: number | null;
   verticalIn: number;
   elasticRecoilBw: number;
   trunkLeanDeg: number;
@@ -124,11 +125,12 @@ export function metricsFromPlant(
   standingY: number = STANDING_ROOT_Y
 ): AttemptMetrics {
   const verticalIn = Math.max(0, apexY - standingY) * 39.3701;
-  const gctSec = Math.max(0.08, plant.gctMs / 1000);
+  const measuredGct = plant.gctMs > 0;
+  const gctSec = Math.max(0.08, (measuredGct ? plant.gctMs : 80) / 1000);
   const elasticRecoilBw =
     plant.compression01 * (1 / gctSec) * 0.55 + plant.approachSpeed * 0.12;
   return {
-    gctMs: Math.round(plant.gctMs),
+    gctMs: measuredGct ? Math.round(plant.gctMs) : null,
     verticalIn: round1(verticalIn),
     elasticRecoilBw: round1(elasticRecoilBw),
     trunkLeanDeg: round1(plant.trunkLeanDeg),
@@ -575,21 +577,18 @@ export class VeniceDunkAttempt {
   }
 
   private resolveGatherMiss(): void {
-    const plant = this.plant ?? {
-      gctMs: 0,
-      trunkLeanDeg: 0,
-      compression01: 0,
-      approachSpeed: this.approachSpeed,
+    this.plant = null;
+    this.outcome = {
+      isMake: false,
+      missReason: this.gatherMiss === 'LATE' ? 'LATE' : 'EARLY',
+      rimDeflectionM: 0,
     };
-    this.outcome = decideContact(
-      this.gatherBlown,
-      plant,
-      this.takeoffApexY,
-      this.rimY,
-      'NONE',
-      this.gatherMiss
-    );
-    this.metrics = metricsFromPlant(plant, this.takeoffApexY, STANDING_ROOT_Y);
+    this.metrics = {
+      gctMs: null,
+      verticalIn: 0,
+      elasticRecoilBw: 0,
+      trunkLeanDeg: 0,
+    };
   }
 
   private resolveContact(): void {

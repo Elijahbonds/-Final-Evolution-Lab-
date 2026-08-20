@@ -888,24 +888,31 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       tap.tick(1 / 60);
       if (tap.outcome) break;
     }
-    const holdGct = hold.plant?.gctMs ?? 0;
-    const tapGct = tap.plant?.gctMs ?? tap.metrics?.gctMs ?? 0;
+    const holdGct = hold.plant?.gctMs ?? hold.metrics?.gctMs ?? null;
+    const tapPlant = tap.plant;
+    const tapGct = tap.metrics?.gctMs ?? tap.plant?.gctMs ?? null;
+    const loopSrc = readFileSync(new URL('../src/core/VeniceDunkLoop.ts', import.meta.url), 'utf8');
+    const modeSrcGate = readFileSync(new URL('../src/components/modes/BabylonDunkMode.tsx', import.meta.url), 'utf8');
     const passed =
       sawHang &&
       !rose &&
       apex > 0.4 &&
       hold.hangElapsed > 0 &&
+      holdGct != null &&
       holdGct > 0 &&
       hold.gatherMiss !== 'LATE' &&
       tap.outcome?.missReason === 'EARLY' &&
       tap.outcome?.missReason !== hold.outcome?.missReason &&
-      tapGct === 0 &&
-      holdGct !== tapGct;
+      tapPlant === null &&
+      tapGct === null &&
+      !loopSrc.includes('gctMs: 0') &&
+      modeSrcGate.includes('plantedGct') &&
+      modeSrcGate.includes('metrics.gctMs > 0');
     results.push({
       name: 'QA: one hold leaves ground and hangs with real GCT; one tap blows gather on a different card',
       passed,
-      actual: `hang=${sawHang} hangT=${hold.hangElapsed.toFixed(3)} rose=${rose} holdGct=${holdGct} holdReason=${hold.outcome?.missReason} tapReason=${tap.outcome?.missReason} tapGct=${tapGct}`,
-      expected: 'hold → hang from apex, GCT > 0; tap → EARLY gather blow, not the same card, no dummy hold GCT 0',
+      actual: `hang=${sawHang} hangT=${hold.hangElapsed.toFixed(3)} rose=${rose} holdGct=${holdGct} holdReason=${hold.outcome?.missReason} tapReason=${tap.outcome?.missReason} tapGct=${tapGct} tapPlant=${tapPlant} dummyZero=${loopSrc.includes('gctMs: 0')}`,
+      expected: 'hold → hang from apex, GCT > 0; tap → EARLY, no plant, metrics.gctMs null (not dummy 0)',
     });
   }
 

@@ -444,7 +444,11 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
   const eastbay = EASTBAY_MASTER_STANDARD;
   const showCase = result !== null && metrics !== null;
-  const plantedGct = (metrics?.gctMs ?? 0) > 0 && result?.missReason !== 'EARLY' && result?.missReason !== 'LATE';
+  const plantedGct =
+    metrics?.gctMs != null &&
+    metrics.gctMs > 0 &&
+    result?.missReason !== 'EARLY' &&
+    result?.missReason !== 'LATE';
   const copy = VENICE_RESULT_COPY;
 
   return (
