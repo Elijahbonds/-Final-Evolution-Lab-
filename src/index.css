@@ -116,13 +116,16 @@
   .emulator-pad-left { left: 2vw; }
   .emulator-pad-right { right: 2vw; }
 
-  .emulator-pad-caption {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 9px;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.45);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  .emulator-shoulders {
+    display: flex;
+    gap: 0.35rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .emulator-shoulder-btn {
+    width: 2.55rem !important;
+    height: 1.55rem !important;
+    border-radius: 0.55rem !important;
   }
 
   .emulator-stick-base {
@@ -232,12 +235,7 @@
   }
 
   .emulator-face-label {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    line-height: 1;
-    color: rgba(255, 255, 255, 0.82);
+    display: none;
   }
 
   /* Japanese/Anime Onomatopoeia Badge */

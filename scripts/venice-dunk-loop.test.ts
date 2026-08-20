@@ -788,12 +788,18 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       overlaySrc.includes('aria-label="joystick"') &&
       overlaySrc.includes('ariaLabel="hold"') &&
       overlaySrc.includes('ariaLabel="plant"') &&
-      overlaySrc.includes('ariaLabel="dunk"') &&
+      !overlaySrc.includes('ariaLabel="dunk"') &&
       overlaySrc.includes('emulator-pad') &&
-      overlaySrc.includes('HOLD') &&
-      overlaySrc.includes('PLANT') &&
-      overlaySrc.includes('DUNK') &&
-      overlaySrc.includes('emulator-abxy');
+      overlaySrc.includes('emulator-abxy') &&
+      overlaySrc.includes('L1') &&
+      overlaySrc.includes('L2') &&
+      overlaySrc.includes('R1') &&
+      overlaySrc.includes('R2') &&
+      !overlaySrc.includes('>HOLD<') &&
+      !overlaySrc.includes('>PLANT<') &&
+      !overlaySrc.includes('>DUNK<') &&
+      !overlaySrc.includes('HOLD ·') &&
+      !overlaySrc.includes('onDunkDown');
     const fullBleedHub =
       appSrc.includes('dunkLive') &&
       appSrc.includes("arenaMode === 'babylon_dunk'") &&
@@ -828,16 +834,19 @@ export function runVeniceDunkLoopTests(): TestResult[] {
     const overlayAfterCase =
       modeSrc.indexOf('showCase') > -1 &&
       modeSrc.indexOf('<EmulatorPadOverlay') > modeSrc.indexOf('showCase') &&
-      modeSrc.includes('nextAttempt') &&
-      modeSrc.includes('instantRetry') &&
+      !modeSrc.includes('nextAttempt') &&
+      !modeSrc.includes('instantRetry') &&
+      !modeSrc.includes('keydown') &&
+      !modeSrc.includes('onDunkDown') &&
       modeSrc.includes('holdDown') &&
-      modeSrc.includes('holdUp');
+      modeSrc.includes('holdUp') &&
+      modeSrc.includes('pointer-events-none');
     const overlayPassed = overlayAlwaysOn && emulatorLook && fullBleedHub && noChopOnMiss && nextPaintCam && hangSafeOverlay && caseDoesNotBuryPad && overlayAfterCase;
     results.push({
-      name: 'Console overlay: full-bleed dunk, stick+HOLD/PLANT/DUNK always on canvas, never gated on ready, no stopRenderLoop on Mixamo miss',
+      name: 'Console overlay: full-bleed dunk, DualShock faces+shoulders always on canvas, no CASE retry menu, no stopRenderLoop on Mixamo miss',
       passed: overlayPassed,
       actual: `alwaysOn=${overlayAlwaysOn} emulator=${emulatorLook} fullBleed=${fullBleedHub} noChop=${noChopOnMiss} cam=${nextPaintCam} hangSafe=${hangSafeOverlay} caseClear=${caseDoesNotBuryPad} afterCase=${overlayAfterCase} failWindowHasStop=${mixamoFailWindow.includes('stopRenderLoop')}`,
-      expected: 'EmulatorPadOverlay always mounted after CASE; joystick+ABXY corner-pinned above chrome; dunkLive hides portal; directed IDLE cam; load-miss catch does not stopRenderLoop',
+      expected: 'EmulatorPadOverlay always mounted after CASE proof; stick left, ABXY+shoulders right; no HOLD/PLANT/DUNK chrome; no keydown; no NEXT/RETRY buttons; dunkLive hides portal',
     });
 
     results.push({

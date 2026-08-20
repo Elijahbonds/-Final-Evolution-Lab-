@@ -317,7 +317,12 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         athlete.playSlam(snap.style, snap.phase === 'CONTACT' ? athlete.hangContactT01 : hangT);
         athlete.root.rotation.y = Math.PI;
       }
-      if (snap.phase === 'LAND' || snap.phase === 'BLOWN') {
+      if (snap.phase === 'LAND') {
+        athlete.root.rotation.y *= 0.85;
+        athlete.root.rotation.x *= 0.7;
+        court.reactCrowd('sit');
+      }
+      if (snap.phase === 'BLOWN') {
         athlete.root.rotation.y *= 0.85;
         athlete.root.rotation.x *= 0.7;
       }
@@ -424,11 +429,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     }
   };
 
-  const handleDunkDown = () => {
-    const attempt = attemptRef.current;
-    if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') {
-      attempt.inputAir(stickXRef.current, true);
-    }
+  const handlePlantUp = () => {
+    /* tap/commit only — release does not add a fourth action */
   };
 
   const handleStick = (x: number, y: number) => {
@@ -440,64 +442,10 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     }
   };
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-      if (e.code === 'Space' || e.code === 'KeyZ') {
-        e.preventDefault();
-        handleHoldDown();
-      } else if (e.code === 'KeyX' || e.code === 'KeyK') {
-        handlePlantDown();
-      } else if (e.code === 'KeyC' || e.code === 'KeyL') {
-        handleDunkDown();
-      } else if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
-        handleStick(-1, 0);
-      } else if (e.code === 'ArrowRight' || e.code === 'KeyD') {
-        handleStick(1, 0);
-      }
-    };
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code === 'Space' || e.code === 'KeyZ') {
-        handleHoldUp();
-      } else if (
-        e.code === 'ArrowLeft' ||
-        e.code === 'ArrowRight' ||
-        e.code === 'KeyA' ||
-        e.code === 'KeyD'
-      ) {
-        handleStick(0, 0);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
-    };
-  });
-
   const eastbay = EASTBAY_MASTER_STANDARD;
   const showCase = result !== null && metrics !== null;
   const plantedGct = (metrics?.gctMs ?? 0) > 0 && result?.missReason !== 'EARLY' && result?.missReason !== 'LATE';
   const copy = VENICE_RESULT_COPY;
-
-  const clearCase = () => {
-    setResult(null);
-    setMetrics(null);
-    setCue(null);
-  };
-
-  const nextAttempt = () => {
-    clearCase();
-    attemptRef.current.reset();
-  };
-
-  const instantRetry = () => {
-    clearCase();
-    attemptRef.current.reset();
-    playSfx(() => SoundJuice.playCharge());
-    attemptRef.current.startRunway();
-  };
 
   return (
     <div className="fixed inset-0 z-[4000] w-full h-full bg-black overflow-hidden">
@@ -514,9 +462,6 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-black/40 text-white/55 border border-white/10 uppercase tracking-widest">
-            VENICE
-          </span>
         </div>
         <button
           onClick={() => setSoundEnabled(!soundEnabled)}
@@ -580,32 +525,16 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
               </div>
             </div>
             )}
-            <div className="flex gap-2 mt-2 pointer-events-auto">
-              <button
-                type="button"
-                onClick={nextAttempt}
-                className="flex-1 px-2 py-1.5 rounded-lg bg-white/10 border border-white/20 text-[10px] font-mono font-bold text-white"
-              >
-                {copy.nextAttempt}
-              </button>
-              <button
-                type="button"
-                onClick={instantRetry}
-                className="flex-1 px-2 py-1.5 rounded-lg bg-[#00F2FF] text-black text-[10px] font-mono font-bold"
-              >
-                {copy.instantRetry}
-              </button>
-            </div>
           </div>
         </div>
       )}
 
       <EmulatorPadOverlay
-        onStick={handleStick}
         onHoldDown={handleHoldDown}
         onHoldUp={handleHoldUp}
         onPlantDown={handlePlantDown}
-        onDunkDown={handleDunkDown}
+        onPlantUp={handlePlantUp}
+        onSteer={handleStick}
       />
     </div>
   );

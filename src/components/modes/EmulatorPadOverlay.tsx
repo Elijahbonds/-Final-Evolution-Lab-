@@ -1,133 +1,77 @@
-import React, { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 /**
- * RetroArch / Delta / phone-emulator controller overlay.
- * Translucent analog stick + ABXY cluster sit ON the 3D canvas.
- * Always visible — the parent must never gate this behind Mixamo `ready`.
+ * DualShock / Xbox overlay. Face + shoulders only.
+ * A / R2 = run. X / L1 = commit window. Stick = hang style.
+ * Y / B / L2 / R1 are pad faces — no extra sport. Letters only, no dashboard chrome.
  */
-
-export interface EmulatorPadOverlayProps {
-  onStick: (x: number, y: number) => void;
+type OverlayProps = {
   onHoldDown: () => void;
   onHoldUp: () => void;
   onPlantDown: () => void;
-  onDunkDown: () => void;
-}
+  onPlantUp: () => void;
+  onSteer: (x: number, y: number) => void;
+};
 
-const STICK_RADIUS = 54;
+const STICK_R = 48;
 
-function FaceButton({
-  label,
-  letter,
-  color,
-  ariaLabel,
-  onDown,
-  onUp,
-}: {
-  label: string;
-  letter: string;
-  color: string;
-  ariaLabel: string;
-  onDown?: () => void;
-  onUp?: () => void;
-}) {
-  const [pressed, setPressed] = useState(false);
-  return (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      onPointerDown={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        (e.currentTarget as HTMLButtonElement).setPointerCapture(e.pointerId);
-        setPressed(true);
-        onDown?.();
-      }}
-      onPointerUp={(e) => {
-        e.preventDefault();
-        setPressed(false);
-        onUp?.();
-      }}
-      onPointerCancel={() => {
-        setPressed(false);
-        onUp?.();
-      }}
-      className="emulator-face-btn touch-none select-none"
-      style={{
-        background: pressed ? color.replace(/[\d.]+\)$/, '0.55)') : color,
-        transform: pressed ? 'scale(0.92)' : 'scale(1)',
-        boxShadow: pressed
-          ? 'inset 0 0 10px rgba(255,255,255,0.25)'
-          : 'inset 0 1px 0 rgba(255,255,255,0.18), 0 2px 8px rgba(0,0,0,0.35)',
-      }}
-    >
-      <span className="emulator-face-letter">{letter}</span>
-      <span className="emulator-face-label">{label}</span>
-    </button>
-  );
-}
-
-export const EmulatorPadOverlay: React.FC<EmulatorPadOverlayProps> = ({
-  onStick,
-  onHoldDown,
-  onHoldUp,
-  onPlantDown,
-  onDunkDown,
-}) => {
-  const baseRef = useRef<HTMLDivElement | null>(null);
-  const draggingRef = useRef(false);
+export function EmulatorPadOverlay({ onHoldDown, onHoldUp, onPlantDown, onPlantUp, onSteer }: OverlayProps) {
+  const stickRef = useRef<HTMLDivElement | null>(null);
+  const dragging = useRef(false);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
 
   const applyStick = useCallback(
     (clientX: number, clientY: number) => {
-      const el = baseRef.current;
+      const el = stickRef.current;
       if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      let dx = clientX - cx;
-      let dy = clientY - cy;
-      const mag = Math.hypot(dx, dy);
-      if (mag > STICK_RADIUS) {
-        dx = (dx / mag) * STICK_RADIUS;
-        dy = (dy / mag) * STICK_RADIUS;
-      }
-      setKnob({ x: dx, y: dy });
-      onStick(dx / STICK_RADIUS, dy / STICK_RADIUS);
+      const r = el.getBoundingClientRect();
+      const cx = r.left + r.width / 2;
+      const cy = r.top + r.height / 2;
+      const nx = (clientX - cx) / STICK_R;
+      const ny = (clientY - cy) / STICK_R;
+      const mag = Math.hypot(nx, ny);
+      const clamped = mag > 1 ? 1 / mag : 1;
+      const x = nx * clamped;
+      const y = ny * clamped;
+      setKnob({ x: x * STICK_R, y: y * STICK_R });
+      onSteer(x, y);
     },
-    [onStick]
+    [onSteer],
   );
 
-  const resetStick = useCallback(() => {
-    draggingRef.current = false;
+  const endStick = useCallback(() => {
+    dragging.current = false;
     setKnob({ x: 0, y: 0 });
-    onStick(0, 0);
-  }, [onStick]);
+    onSteer(0, 0);
+  }, [onSteer]);
 
   return (
-    <div className="emulator-pad pointer-events-none" data-testid="emulator-pad" style={{ zIndex: 40 }}>
+    <div className="emulator-pad pointer-events-none" data-testid="venice-emulator-pad" style={{ zIndex: 40 }}>
       <div className="emulator-pad-left pointer-events-auto">
+        <div className="emulator-shoulders">
+          <Shoulder face="L2" />
+          <Shoulder face="L1" down={onPlantDown} up={onPlantUp} ariaLabel="plant" />
+        </div>
         <div
-          ref={baseRef}
+          ref={stickRef}
           className="emulator-stick-base touch-none select-none"
+          data-testid="venice-stick"
           aria-label="joystick"
           role="slider"
           aria-valuemin={-1}
           aria-valuemax={1}
-          aria-valuenow={Math.round(knob.x * 100) / 100}
+          aria-valuenow={Math.round((knob.x / STICK_R) * 100) / 100}
           onPointerDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            draggingRef.current = true;
+            dragging.current = true;
             e.currentTarget.setPointerCapture(e.pointerId);
             applyStick(e.clientX, e.clientY);
           }}
           onPointerMove={(e) => {
-            if (!draggingRef.current) return;
+            if (!dragging.current) return;
             applyStick(e.clientX, e.clientY);
           }}
-          onPointerUp={resetStick}
-          onPointerCancel={resetStick}
+          onPointerUp={endStick}
+          onPointerCancel={endStick}
         >
           <div className="emulator-dpad" aria-hidden="true">
             <span className="emulator-dpad-arm emulator-dpad-n" />
@@ -135,55 +79,89 @@ export const EmulatorPadOverlay: React.FC<EmulatorPadOverlayProps> = ({
             <span className="emulator-dpad-arm emulator-dpad-e" />
             <span className="emulator-dpad-arm emulator-dpad-w" />
           </div>
-          <div
-            className="emulator-stick-knob"
-            style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }}
-          />
+          <div className="emulator-stick-knob" style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />
         </div>
-        <span className="emulator-pad-caption">STICK</span>
       </div>
 
       <div className="emulator-pad-right pointer-events-auto">
+        <div className="emulator-shoulders">
+          <Shoulder face="R1" />
+          <Shoulder face="R2" down={onHoldDown} up={onHoldUp} ariaLabel="hold" />
+        </div>
         <div className="emulator-abxy">
           <div className="emulator-abxy-y">
-            <FaceButton
-              letter="Y"
-              label="DUNK"
-              ariaLabel="dunk"
-              color="rgba(220, 196, 64, 0.38)"
-              onDown={onDunkDown}
-            />
+            <Face letter="Y" color="rgba(220, 196, 64, 0.28)" />
           </div>
           <div className="emulator-abxy-x">
-            <FaceButton
-              letter="X"
-              label=""
-              ariaLabel="face-x"
-              color="rgba(80, 140, 220, 0.18)"
-            />
+            <Face letter="X" color="rgba(80, 140, 220, 0.42)" down={onPlantDown} up={onPlantUp} ariaLabel="plant" />
           </div>
           <div className="emulator-abxy-b">
-            <FaceButton
-              letter="B"
-              label="PLANT"
-              ariaLabel="plant"
-              color="rgba(210, 72, 72, 0.38)"
-              onDown={onPlantDown}
-            />
+            <Face letter="B" color="rgba(210, 72, 72, 0.28)" />
           </div>
           <div className="emulator-abxy-a">
-            <FaceButton
-              letter="A"
-              label="HOLD"
-              ariaLabel="hold"
-              color="rgba(72, 196, 118, 0.42)"
-              onDown={onHoldDown}
-              onUp={onHoldUp}
-            />
+            <Face letter="A" color="rgba(72, 196, 118, 0.42)" down={onHoldDown} up={onHoldUp} ariaLabel="hold" />
           </div>
         </div>
-        <span className="emulator-pad-caption">HOLD · PLANT · DUNK</span>
       </div>
     </div>
   );
-};
+}
+
+function Shoulder({
+  face,
+  down,
+  up,
+  ariaLabel,
+}: {
+  face: string;
+  down?: () => void;
+  up?: () => void;
+  ariaLabel?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel ?? face.toLowerCase()}
+      className="emulator-face-btn emulator-shoulder-btn"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        down?.();
+      }}
+      onPointerUp={() => up?.()}
+      onPointerLeave={() => up?.()}
+    >
+      <span className="emulator-face-letter">{face}</span>
+    </button>
+  );
+}
+
+function Face({
+  letter,
+  color,
+  down,
+  up,
+  ariaLabel,
+}: {
+  letter: string;
+  color: string;
+  down?: () => void;
+  up?: () => void;
+  ariaLabel?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={ariaLabel ?? letter.toLowerCase()}
+      className="emulator-face-btn"
+      style={{ background: color }}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        down?.();
+      }}
+      onPointerUp={() => up?.()}
+      onPointerLeave={() => up?.()}
+    >
+      <span className="emulator-face-letter">{letter}</span>
+    </button>
+  );
+}
