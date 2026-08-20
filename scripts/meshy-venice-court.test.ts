@@ -4,7 +4,7 @@
  * timeout can even start — not wrapped inside it, not sharing its abort.
  */
 import './venice-place-canvas-polyfill.ts';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { MeshBuilder, NullEngine, Scene, TransformNode, Vector3 } from '@babylonjs/core';
 
