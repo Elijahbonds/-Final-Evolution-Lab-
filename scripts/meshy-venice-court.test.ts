@@ -576,6 +576,15 @@ if (nodeProcess?.argv?.[1]?.includes('meshy-venice-court')) {
     console.log(`  Expected: ${t.expected}\n`);
     if (!t.passed) all = false;
   }
+  const { runStudioSafeZipTests } = await import('./studio-safe-zip.test.ts');
+  console.log('=== STUDIO-SAFE ZIP ===\n');
+  const zipRows = runStudioSafeZipTests();
+  for (const t of zipRows) {
+    console.log(`${t.passed ? '✓ PASS' : '✗ FAIL'} | ${t.name}`);
+    console.log(`  Actual: ${t.actual}`);
+    console.log(`  Expected: ${t.expected}\n`);
+    if (!t.passed) all = false;
+  }
   if (!all) {
     console.error('Meshy Venice court tests failed.');
     nodeProcess?.exit(1);
