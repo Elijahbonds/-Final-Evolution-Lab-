@@ -4,9 +4,10 @@
  *
  * Also owns the Meshy Venice court + surround GLB loader (fetch + File +
  * glTF SceneLoader). That import runs on the live scene independently of
- * the Mixamo athlete's hang-required load/abort — it must resolve (or
- * fail-safe) before that timeout can even start, and never disposes the
- * scene mid-import. See loadMeshyVeniceCourt / hideCheapVenicePrimitives.
+ * the Mixamo athlete's hang-required load/abort — a hang miss must not
+ * dump a mural that already landed. Fail-safe on a Meshy miss. Never
+ * disposes the scene mid-import. See loadMeshyVeniceCourt /
+ * retainLiveMeshyMural / hideCheapVenicePrimitives.
  */
 
 import '@babylonjs/loaders/glTF';
@@ -379,6 +380,27 @@ export function hideCheapVenicePrimitives(
 ): void {
   if (loaded.court) hideCheapCourtMeshes(scene);
   if (loaded.surround) hideCheapSurroundMeshes(scene);
+}
+
+/**
+ * Keep a landed Meshy mural on the live scene. Only unmount or a disposed
+ * scene may dump it — athlete hang abort is not a reason to dispose.
+ * Returns true when the mural stays attached.
+ */
+export function retainLiveMeshyMural(
+  scene: Scene,
+  meshy: MeshyVeniceCourt,
+  unmounted: boolean
+): boolean {
+  if (unmounted || scene.isDisposed) {
+    meshy.dispose();
+    return false;
+  }
+  hideCheapVenicePrimitives(scene, {
+    court: meshy.courtLoaded,
+    surround: meshy.surroundLoaded,
+  });
+  return true;
 }
 
 function registerVeniceShaders(): void {

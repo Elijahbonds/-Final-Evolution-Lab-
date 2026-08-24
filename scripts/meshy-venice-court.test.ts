@@ -30,6 +30,7 @@ import {
   hideCheapVenicePrimitives,
   isPlaceholderMeshyGlb,
   loadMeshyVeniceCourt,
+  retainLiveMeshyMural,
   MeshyPiece,
   MESHY_COURT_GLB,
   MESHY_SURROUND_GLB,
@@ -292,6 +293,38 @@ export async function runMeshyVeniceCourtTests(): Promise<
   placeholderMeshy.dispose();
   placeholderScene.dispose();
 
+  // Hang abort must not dump a live-sized mural that already landed.
+  // In-memory File fixtures only — no venice-blue-court.glb in git.
+  const hangAbortScene = new Scene(engine);
+  await buildVeniceNightCourt(hangAbortScene, undefined, hoop, {
+    spectators: false,
+    previewSafe: true,
+  });
+  const hangAbortMeshy = await loadMeshyVeniceCourt(hangAbortScene, {
+    courtWidth: 15.2,
+    courtDepth: 28,
+    surroundWidth: 60,
+    surroundDepth: 60,
+    courtCenterZ: 5.0,
+    courtFile,
+    surroundFile,
+  });
+  const athleteAborted = true;
+  const unmounted = false;
+  const keptAfterHangAbort = retainLiveMeshyMural(hangAbortScene, hangAbortMeshy, unmounted);
+  const muralStaysAfterHangAbort =
+    athleteAborted &&
+    keptAfterHangAbort &&
+    hangAbortMeshy.courtLoaded &&
+    hangAbortMeshy.surroundLoaded &&
+    hangAbortMeshy.court?.root.isDisposed() === false &&
+    hangAbortMeshy.surround?.root.isDisposed() === false &&
+    hangAbortScene.getMeshByName('venice_court')?.isEnabled() === false &&
+    hangAbortScene.getMeshByName('venice_sky')?.isEnabled() === false &&
+    hangAbortScene.getMeshByName('venice_rim')?.isEnabled() === true;
+  const dumpedOnUnmount = !retainLiveMeshyMural(hangAbortScene, hangAbortMeshy, true);
+  hangAbortScene.dispose();
+
   // Byte-level sniff, independent of the SceneLoader round-trip above: the
   // actual checked-in files carry the FEL-meshy-placeholder generator tag,
   // and are also small enough to be caught by size alone.
@@ -399,8 +432,16 @@ export async function runMeshyVeniceCourtTests(): Promise<
   const hangRequiredIsAthleteOnly =
     !killHungLoadBlock.includes('meshyCourtRef') &&
     !killHungLoadBlock.includes('MeshyVeniceCourt') &&
+    !killHungLoadBlock.includes('retainLiveMeshyMural') &&
     killHungLoadBlock.includes('abortMixamoLoad') &&
     killHungLoadBlock.includes('athleteRef');
+
+  const meshyThenIdx = modeSrc.indexOf('.then((meshy)');
+  const meshyThenBlock = meshyThenIdx > -1 ? modeSrc.slice(meshyThenIdx, meshyThenIdx + 420) : '';
+  const hangAbortDoesNotDumpMural =
+    meshyThenBlock.includes('retainLiveMeshyMural') &&
+    !meshyThenBlock.includes('bootAborted') &&
+    !meshyThenBlock.includes('meshy.dispose()');
 
   // VeniceNightCourt.ts legitimately imports MixamoAthlete for crowd
   // spectators — the real isolation check is that the Meshy loader itself
@@ -408,7 +449,8 @@ export async function runMeshyVeniceCourtTests(): Promise<
   const meshyLoaderIsInVeniceNightCourt =
     meshySrc.includes('export async function loadMeshyVeniceCourt') &&
     meshySrc.includes('export function fitMeshyPieceToFootprint') &&
-    meshySrc.includes('export function hideCheapVenicePrimitives');
+    meshySrc.includes('export function hideCheapVenicePrimitives') &&
+    meshySrc.includes('export function retainLiveMeshyMural');
   const meshyLoadIndependentOfAthleteAbort =
     meshySrc.includes('never shares state with the athlete') &&
     !meshySrc.includes('abortMixamoLoad');
@@ -479,6 +521,12 @@ export async function runMeshyVeniceCourtTests(): Promise<
       passed: hangRequiredIsAthleteOnly && meshyLoadIndependentOfAthleteAbort,
       actual: `killHungLoadTouchesMeshy=${killHungLoadBlock.includes('meshyCourtRef')} meshyUsesAbortMixamoLoad=${meshySrc.includes('abortMixamoLoad')}`,
       expected: 'killHungLoad only disposes athleteRef/abortMixamoLoad; the Meshy loader never calls abortMixamoLoad',
+    },
+    {
+      name: 'Live-sized Meshy File stays on the scene after Mixamo hang abort — hideCheap still runs',
+      passed: muralStaysAfterHangAbort && hangAbortDoesNotDumpMural && dumpedOnUnmount,
+      actual: `kept=${keptAfterHangAbort} muralStays=${muralStaysAfterHangAbort} thenIndependent=${hangAbortDoesNotDumpMural} dumpedOnUnmount=${dumpedOnUnmount} thenHasBootAborted=${meshyThenBlock.includes('bootAborted')}`,
+      expected: 'retainLiveMeshyMural keeps a landed File mural when athleteAborted; then-handler ignores bootAborted; unmount still dumps',
     },
     {
       name: 'Meshy File loader lives in VeniceNightCourt.ts, not a separate module',

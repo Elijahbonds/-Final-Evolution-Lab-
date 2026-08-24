@@ -5,9 +5,9 @@ import { createBabylonContext } from '../../lib/babylon/BabylonSceneBuilder';
 import { abortMixamoLoad, createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
 import {
   buildVeniceNightCourt,
-  hideCheapVenicePrimitives,
   loadMeshyVeniceCourt,
   MeshyVeniceCourt,
+  retainLiveMeshyMural,
   VeniceNightCourt,
 } from '../../lib/babylon/VeniceNightCourt';
 import { directedFraming } from '../../lib/babylon/veniceDunkCamera';
@@ -131,16 +131,13 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           surroundDepth: 60,
           courtCenterZ: 5.0,
         }).then((meshy) => {
-          if (disposed || bootAborted || scene.isDisposed) {
-            meshy.dispose();
+          // Hang miss must not dump a mural that already landed. Only
+          // unmount / a disposed scene may drop it.
+          if (!retainLiveMeshyMural(scene, meshy, disposed)) {
             return;
           }
           meshyCourtRef.current = meshy;
           worldScaleRef.current = meshy.worldScale;
-          hideCheapVenicePrimitives(scene, {
-            court: meshy.courtLoaded,
-            surround: meshy.surroundLoaded,
-          });
           if ((meshy.courtLoaded || meshy.surroundLoaded) && meshy.worldScale > 1) {
             const s = meshy.worldScale;
             const rim = courtRef.current?.rim;
