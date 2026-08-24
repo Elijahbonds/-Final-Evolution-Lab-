@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * Studio-safe ZIP of this branch.
+ * Studio-safe ZIP of this branch. Pure Node — no `zip` binary.
  *
- * Packs dunk code (pad, loop, Meshy retain, App full-bleed) and same-origin
- * assets. NEVER packs venice-blue-court.glb / venice-court-surround.glb —
- * those live only in AI Studio (~3.0MB / ~1.8MB). Omit the paths, or skip
- * them if they are present on disk, so an import cannot wipe the mural.
+ * Packs dunk code and same-origin assets. NEVER packs
+ * venice-blue-court.glb / venice-court-surround.glb (any case, any parent
+ * folder, / or \\) and NEVER packs a FEL-meshy-placeholder stub. Empty
+ * emit and write failure are fail-closed: no archive left behind.
  */
-import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,8 +23,8 @@ export const STUDIO_UNSAFE_MESHY_GLBS = Object.freeze([
   'venice-court-surround.glb',
 ]);
 
-/** Same ceiling as MESHY_PLACEHOLDER_MAX_BYTES — a stub at these names is never PLACE. */
 export const STUDIO_MESHY_STUB_MAX_BYTES = 8192;
+export const STUDIO_MESHY_PLACEHOLDER_GENERATOR = 'FEL-meshy-placeholder';
 
 const INCLUDE_DIRS = ['src', 'public', 'scripts'];
 const INCLUDE_ROOT_FILES = [
@@ -41,13 +41,69 @@ const INCLUDE_ROOT_FILES = [
 ];
 const SKIP_DIR_NAMES = new Set(['node_modules', '.git', 'dist', 'coverage']);
 
+const UNSAFE_BASENAMES = new Set(STUDIO_UNSAFE_MESHY_GLBS.map((n) => n.toLowerCase()));
+
+/** Normalize separators so basename works for / and \\. */
+export function normalizeZipPath(relPath) {
+  return String(relPath ?? '').replace(/\\/g, '/');
+}
+
+export function zipBasename(relPath) {
+  const parts = normalizeZipPath(relPath).split('/').filter(Boolean);
+  return parts[parts.length - 1] ?? '';
+}
+
+/** Case-insensitive mural basename, any parent folder, / or \\. */
 export function isStudioUnsafeMeshyPath(relPath) {
-  const base = String(relPath).replace(/\\/g, '/').split('/').pop();
-  return STUDIO_UNSAFE_MESHY_GLBS.includes(base ?? '');
+  return UNSAFE_BASENAMES.has(zipBasename(relPath).toLowerCase());
+}
+
+export function readGlbGenerator(bytes) {
+  const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  if (buf.length < 20) return null;
+  if (buf.readUInt32LE(0) !== 0x46546c67) return null;
+  const jsonChunkLength = buf.readUInt32LE(12);
+  const jsonChunkType = buf.readUInt32LE(16);
+  if (jsonChunkType !== 0x4e4f534a) return null;
+  if (20 + jsonChunkLength > buf.length) return null;
+  try {
+    const json = JSON.parse(buf.subarray(20, 20 + jsonChunkLength).toString('utf8'));
+    return json.asset?.generator ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function isPlaceholderMeshyBytes(bytes) {
+  const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  if (buf.length <= STUDIO_MESHY_STUB_MAX_BYTES && readGlbGenerator(buf) === STUDIO_MESHY_PLACEHOLDER_GENERATOR) {
+    return true;
+  }
+  return readGlbGenerator(buf) === STUDIO_MESHY_PLACEHOLDER_GENERATOR;
+}
+
+function looksLikeGlbName(relPath) {
+  return zipBasename(relPath).toLowerCase().endsWith('.glb');
+}
+
+/** Name or FEL-meshy-placeholder tag — either is enough to refuse. */
+export function shouldOmitFromStudioSafeZip(relPath, bytes) {
+  if (isStudioUnsafeMeshyPath(relPath)) return true;
+  if (bytes && isPlaceholderMeshyBytes(bytes)) return true;
+  return false;
 }
 
 function shouldSkipDir(name) {
   return SKIP_DIR_NAMES.has(name);
+}
+
+function readMaybeGlb(abs, rel) {
+  if (!looksLikeGlbName(rel)) return null;
+  try {
+    return readFileSync(abs);
+  } catch {
+    return null;
+  }
 }
 
 function walkFiles(dir, root, acc) {
@@ -63,11 +119,12 @@ function walkFiles(dir, root, acc) {
     if (!ent.isFile()) continue;
     if (rel.endsWith('.zip')) continue;
     if (isStudioUnsafeMeshyPath(rel)) continue;
+    const sniff = readMaybeGlb(abs, rel);
+    if (shouldOmitFromStudioSafeZip(rel, sniff ?? undefined)) continue;
     acc.push(rel);
   }
 }
 
-/** Branch snapshot for Studio. Mural GLB basenames are never collected. */
 export function collectStudioSafeEntries(root) {
   const acc = [];
   for (const dir of INCLUDE_DIRS) {
@@ -75,29 +132,140 @@ export function collectStudioSafeEntries(root) {
     if (existsSync(abs)) walkFiles(abs, root, acc);
   }
   for (const f of INCLUDE_ROOT_FILES) {
-    if (!existsSync(join(root, f))) continue;
-    if (isStudioUnsafeMeshyPath(f)) continue;
+    const abs = join(root, f);
+    if (!existsSync(abs)) continue;
+    const sniff = readMaybeGlb(abs, f);
+    if (shouldOmitFromStudioSafeZip(f, sniff ?? undefined)) continue;
     acc.push(f);
   }
   return [...new Set(acc)].sort();
 }
 
-export function writeStudioSafeZip({ root, outPath }) {
-  const entries = collectStudioSafeEntries(root).filter((rel) => !isStudioUnsafeMeshyPath(rel));
-  mkdirSync(dirname(outPath), { recursive: true });
-  if (existsSync(outPath)) unlinkSync(outPath);
-  const r = spawnSync('zip', ['-q', '-X', '-@', outPath], {
-    cwd: root,
-    input: entries.length ? `${entries.join('\n')}\n` : '',
-    encoding: 'utf8',
-  });
-  if (r.status !== 0) {
-    throw new Error(r.stderr?.trim() || r.stdout?.trim() || 'zip failed');
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[i] = c >>> 0;
   }
-  return { outPath, entries };
+  return table;
+})();
+
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
 }
 
-/** Central-directory listing: name + uncompressed size. */
+function dosDateTime(date = new Date()) {
+  const dosTime =
+    (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const dosDate =
+    ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  return { dosTime, dosDate };
+}
+
+/** Store-method ZIP in process. No `zip` binary. */
+export function buildStoredZip(files) {
+  const { dosTime, dosDate } = dosDateTime();
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const file of files) {
+    const name = Buffer.from(normalizeZipPath(file.name), 'utf8');
+    const data = Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data);
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt16LE(dosTime, 10);
+    local.writeUInt16LE(dosDate, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(0, 28);
+    locals.push(local, name, data);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt16LE(dosTime, 12);
+    central.writeUInt16LE(dosDate, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt16LE(0, 36);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    centrals.push(central, name);
+    offset += 30 + name.length + data.length;
+  }
+  const cd = Buffer.concat(centrals);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(files.length, 8);
+  eocd.writeUInt16LE(files.length, 10);
+  eocd.writeUInt32LE(cd.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  eocd.writeUInt16LE(0, 20);
+  return Buffer.concat([...locals, cd, eocd]);
+}
+
+function removeIfPresent(outPath) {
+  try {
+    if (existsSync(outPath)) unlinkSync(outPath);
+  } catch {
+    /* fail-closed best effort */
+  }
+}
+
+export function writeStudioSafeZip({ root, outPath }) {
+  let entries = collectStudioSafeEntries(root).filter((rel) => {
+    const abs = join(root, rel);
+    const sniff = existsSync(abs) ? readMaybeGlb(abs, rel) : null;
+    return !shouldOmitFromStudioSafeZip(rel, sniff ?? undefined);
+  });
+  if (entries.length === 0) {
+    removeIfPresent(outPath);
+    throw new Error('refusing to emit an empty Studio-safe ZIP');
+  }
+  mkdirSync(dirname(outPath), { recursive: true });
+  removeIfPresent(outPath);
+  try {
+    const files = [];
+    for (const rel of entries) {
+      const abs = join(root, rel);
+      const data = readFileSync(abs);
+      if (shouldOmitFromStudioSafeZip(rel, data)) continue;
+      files.push({ name: normalizeZipPath(rel), data });
+    }
+    if (files.length === 0) {
+      throw new Error('refusing to emit an empty Studio-safe ZIP');
+    }
+    const archive = buildStoredZip(files);
+    writeFileSync(outPath, archive);
+    const listed = listZipEntries(outPath);
+    if (listed.length === 0 || zipHasStudioUnsafeMeshy(listed) || zipHasMeshyStubAtUnsafeNames(listed)) {
+      throw new Error('refusing to emit a ZIP that contains Studio Meshy mural paths or is empty');
+    }
+    return { outPath, entries: files.map((f) => f.name) };
+  } catch (err) {
+    removeIfPresent(outPath);
+    throw err;
+  }
+}
+
 export function listZipEntries(zipPath) {
   const buf = readFileSync(zipPath);
   let eocd = -1;
@@ -140,10 +308,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const root = resolve(process.argv[2] || repoRoot());
   const outPath = resolve(process.argv[3] || join(root, 'dist', 'venice-dunk-studio-safe.zip'));
   const { entries } = writeStudioSafeZip({ root, outPath });
-  const listed = listZipEntries(outPath);
-  if (zipHasStudioUnsafeMeshy(listed) || zipHasMeshyStubAtUnsafeNames(listed)) {
-    unlinkSync(outPath);
-    throw new Error('refusing to emit a ZIP that contains Studio Meshy mural paths');
-  }
-  console.log(`wrote ${outPath} (${entries.length} files, mural GLBs omitted)`);
+  console.log(`wrote ${outPath} (${entries.length} files, mural GLBs and FEL-meshy-placeholder omitted)`);
 }
