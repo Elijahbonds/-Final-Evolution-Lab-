@@ -95,6 +95,149 @@
     );
   }
 
+  /* RetroArch / Delta overlay — corner-pinned so hang/rim stay clear */
+  .emulator-pad {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+  }
+
+  .emulator-pad-left,
+  .emulator-pad-right {
+    position: absolute;
+    bottom: 1.8vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .emulator-pad-left { left: 2vw; }
+  .emulator-pad-right { right: 2vw; }
+
+  .emulator-shoulders {
+    display: flex;
+    gap: 0.35rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .emulator-shoulder-btn {
+    width: 2.55rem !important;
+    height: 1.55rem !important;
+    border-radius: 0.55rem !important;
+  }
+
+  .emulator-stick-base {
+    position: relative;
+    width: 7.1rem;
+    height: 7.1rem;
+    border-radius: 9999px;
+    background: rgba(8, 10, 16, 0.38);
+    border: 2px solid rgba(255, 255, 255, 0.28);
+    box-shadow:
+      inset 0 0 18px rgba(0, 0, 0, 0.45),
+      0 4px 16px rgba(0, 0, 0, 0.3);
+    touch-action: none;
+    cursor: pointer;
+  }
+
+  .emulator-dpad {
+    position: absolute;
+    inset: 18%;
+    pointer-events: none;
+    opacity: 0.28;
+  }
+
+  .emulator-dpad-arm {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.55);
+    border-radius: 2px;
+  }
+
+  .emulator-dpad-n,
+  .emulator-dpad-s {
+    left: 50%;
+    width: 22%;
+    height: 38%;
+    transform: translateX(-50%);
+  }
+
+  .emulator-dpad-n { top: 0; }
+  .emulator-dpad-s { bottom: 0; }
+
+  .emulator-dpad-e,
+  .emulator-dpad-w {
+    top: 50%;
+    width: 38%;
+    height: 22%;
+    transform: translateY(-50%);
+  }
+
+  .emulator-dpad-w { left: 0; }
+  .emulator-dpad-e { right: 0; }
+
+  .emulator-stick-knob {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 2.55rem;
+    height: 2.55rem;
+    margin: -1.275rem 0 0 -1.275rem;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.42), rgba(180, 190, 210, 0.22) 55%, rgba(20, 24, 32, 0.4));
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+  }
+
+  .emulator-abxy {
+    position: relative;
+    width: 8.1rem;
+    height: 8.1rem;
+  }
+
+  .emulator-abxy-y,
+  .emulator-abxy-x,
+  .emulator-abxy-b,
+  .emulator-abxy-a {
+    position: absolute;
+  }
+
+  .emulator-abxy-y { top: 0; left: 50%; transform: translateX(-50%); }
+  .emulator-abxy-a { bottom: 0; left: 50%; transform: translateX(-50%); }
+  .emulator-abxy-x { left: 0; top: 50%; transform: translateY(-50%); }
+  .emulator-abxy-b { right: 0; top: 50%; transform: translateY(-50%); }
+
+  .emulator-face-btn {
+    width: 2.7rem;
+    height: 2.7rem;
+    border-radius: 9999px;
+    border: 2px solid rgba(255, 255, 255, 0.32);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+    backdrop-filter: blur(2px);
+  }
+
+  .emulator-face-letter {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  }
+
+  .emulator-face-label {
+    display: none;
+  }
+
   /* Japanese/Anime Onomatopoeia Badge */
   .manga-sfx-badge {
     font-family: 'Orbitron', sans-serif;

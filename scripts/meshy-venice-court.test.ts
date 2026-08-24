@@ -4,7 +4,8 @@
  * timeout can even start — not wrapped inside it, not sharing its abort.
  */
 import './venice-place-canvas-polyfill.ts';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { MeshBuilder, NullEngine, Scene, TransformNode, Vector3 } from '@babylonjs/core';
 
 if (typeof globalThis.FileReader === 'undefined') {
@@ -29,12 +30,25 @@ import {
   hideCheapVenicePrimitives,
   isPlaceholderMeshyGlb,
   loadMeshyVeniceCourt,
+  retainLiveMeshyMural,
   MeshyPiece,
   MESHY_COURT_GLB,
   MESHY_SURROUND_GLB,
   MESHY_PLACEHOLDER_GENERATOR,
   MESHY_PLACEHOLDER_MAX_BYTES,
+  MESHY_LIVE_MIN_BYTES,
 } from '../src/lib/babylon/VeniceNightCourt';
+
+function buildPlaceholderStubGlb(name: string): ArrayBuffer {
+  return buildFakeRealMeshyGlb({
+    halfX: 1,
+    halfZ: 1,
+    color: [0.05, 0.3, 0.62, 1],
+    name,
+    generator: MESHY_PLACEHOLDER_GENERATOR,
+    padBytes: 0,
+  });
+}
 
 /**
  * Test-only fixture builder — never written to disk, never checked in.
@@ -149,9 +163,9 @@ export async function runMeshyVeniceCourtTests(): Promise<
   });
   void court;
 
-  // Git never holds real Meshy bytes — the checked-in venice-blue-court.glb
-  // / venice-court-surround.glb are the FEL-meshy-placeholder stub (see the
-  // dedicated placeholder-detection tests below). To still exercise the
+  // Git never holds Meshy mural bytes (live files stay in Studio). In-memory
+  // stubs + a synthetic export exercise placeholder detection / scale
+  // authority without writing venice-blue-court.glb to disk. To still exercise the
   // scale-authority code path (fit-to-footprint, worldScale, hideCheap) a
   // synthetic "real export" fixture is built in-memory only — never written
   // to disk, never shipped — standing in for a human-uploaded Meshy export
@@ -234,16 +248,19 @@ export async function runMeshyVeniceCourtTests(): Promise<
     failSafeThrew = true;
   }
 
-  // The CHECKED-IN git fixtures are the FEL-meshy-placeholder stub — a
-  // 928B/912B single-quad fixture, not a textured mural. Loading them for
-  // real (through the same File + attachMeshyPiece path PLACE uses) must
-  // fail safe exactly like a missing file: courtLoaded/surroundLoaded
-  // false, worldScale 1, and — critically — hideCheapVenicePrimitives must
-  // NOT strip the authored sky/ocean/fence/bleachers just because a stub
-  // quad technically "loaded". This is the PLACE bug: a 928B stub must
-  // never be trusted as scale authority.
-  const realCourtBytes = readFileSync(new URL(`../public/assets/${MESHY_COURT_GLB}`, import.meta.url));
-  const realSurroundBytes = readFileSync(new URL(`../public/assets/${MESHY_SURROUND_GLB}`, import.meta.url));
+  // In-memory FEL-meshy-placeholder stubs — never written to public/assets,
+  // so a ZIP of this repo cannot overwrite Studio's live mural. Loading
+  // them through attachMeshyPiece must fail safe: courtLoaded/surroundLoaded
+  // false, worldScale 1, hideCheap must NOT strip authored sky/ocean/fence.
+  const realCourtBytes = new Uint8Array(buildPlaceholderStubGlb('StubCourt'));
+  const realSurroundBytes = new Uint8Array(buildPlaceholderStubGlb('StubSurround'));
+  const courtOnDiskPath = fileURLToPath(new URL(`../public/assets/${MESHY_COURT_GLB}`, import.meta.url));
+  const surroundOnDiskPath = fileURLToPath(new URL(`../public/assets/${MESHY_SURROUND_GLB}`, import.meta.url));
+  const courtOnDisk = existsSync(courtOnDiskPath) ? statSync(courtOnDiskPath).size : 0;
+  const surroundOnDisk = existsSync(surroundOnDiskPath) ? statSync(surroundOnDiskPath).size : 0;
+  const zipDoesNotShipStub =
+    (courtOnDisk === 0 || courtOnDisk >= MESHY_LIVE_MIN_BYTES) &&
+    (surroundOnDisk === 0 || surroundOnDisk >= MESHY_LIVE_MIN_BYTES);
   const placeholderScene = new Scene(engine);
   const placeholderCourt = await buildVeniceNightCourt(placeholderScene, undefined, hoop, {
     spectators: false,
@@ -275,6 +292,38 @@ export async function runMeshyVeniceCourtTests(): Promise<
     placeholderScene.getMeshByName('bleacher_row_0')?.isEnabled() === true;
   placeholderMeshy.dispose();
   placeholderScene.dispose();
+
+  // Hang abort must not dump a live-sized mural that already landed.
+  // In-memory File fixtures only — no venice-blue-court.glb in git.
+  const hangAbortScene = new Scene(engine);
+  await buildVeniceNightCourt(hangAbortScene, undefined, hoop, {
+    spectators: false,
+    previewSafe: true,
+  });
+  const hangAbortMeshy = await loadMeshyVeniceCourt(hangAbortScene, {
+    courtWidth: 15.2,
+    courtDepth: 28,
+    surroundWidth: 60,
+    surroundDepth: 60,
+    courtCenterZ: 5.0,
+    courtFile,
+    surroundFile,
+  });
+  const athleteAborted = true;
+  const unmounted = false;
+  const keptAfterHangAbort = retainLiveMeshyMural(hangAbortScene, hangAbortMeshy, unmounted);
+  const muralStaysAfterHangAbort =
+    athleteAborted &&
+    keptAfterHangAbort &&
+    hangAbortMeshy.courtLoaded &&
+    hangAbortMeshy.surroundLoaded &&
+    hangAbortMeshy.court?.root.isDisposed() === false &&
+    hangAbortMeshy.surround?.root.isDisposed() === false &&
+    hangAbortScene.getMeshByName('venice_court')?.isEnabled() === false &&
+    hangAbortScene.getMeshByName('venice_sky')?.isEnabled() === false &&
+    hangAbortScene.getMeshByName('venice_rim')?.isEnabled() === true;
+  const dumpedOnUnmount = !retainLiveMeshyMural(hangAbortScene, hangAbortMeshy, true);
+  hangAbortScene.dispose();
 
   // Byte-level sniff, independent of the SceneLoader round-trip above: the
   // actual checked-in files carry the FEL-meshy-placeholder generator tag,
@@ -383,8 +432,16 @@ export async function runMeshyVeniceCourtTests(): Promise<
   const hangRequiredIsAthleteOnly =
     !killHungLoadBlock.includes('meshyCourtRef') &&
     !killHungLoadBlock.includes('MeshyVeniceCourt') &&
+    !killHungLoadBlock.includes('retainLiveMeshyMural') &&
     killHungLoadBlock.includes('abortMixamoLoad') &&
     killHungLoadBlock.includes('athleteRef');
+
+  const meshyThenIdx = modeSrc.indexOf('.then((meshy)');
+  const meshyThenBlock = meshyThenIdx > -1 ? modeSrc.slice(meshyThenIdx, meshyThenIdx + 420) : '';
+  const hangAbortDoesNotDumpMural =
+    meshyThenBlock.includes('retainLiveMeshyMural') &&
+    !meshyThenBlock.includes('bootAborted') &&
+    !meshyThenBlock.includes('meshy.dispose()');
 
   // VeniceNightCourt.ts legitimately imports MixamoAthlete for crowd
   // spectators — the real isolation check is that the Meshy loader itself
@@ -392,7 +449,8 @@ export async function runMeshyVeniceCourtTests(): Promise<
   const meshyLoaderIsInVeniceNightCourt =
     meshySrc.includes('export async function loadMeshyVeniceCourt') &&
     meshySrc.includes('export function fitMeshyPieceToFootprint') &&
-    meshySrc.includes('export function hideCheapVenicePrimitives');
+    meshySrc.includes('export function hideCheapVenicePrimitives') &&
+    meshySrc.includes('export function retainLiveMeshyMural');
   const meshyLoadIndependentOfAthleteAbort =
     meshySrc.includes('never shares state with the athlete') &&
     !meshySrc.includes('abortMixamoLoad');
@@ -465,22 +523,34 @@ export async function runMeshyVeniceCourtTests(): Promise<
       expected: 'killHungLoad only disposes athleteRef/abortMixamoLoad; the Meshy loader never calls abortMixamoLoad',
     },
     {
+      name: 'Live-sized Meshy File stays on the scene after Mixamo hang abort — hideCheap still runs',
+      passed: muralStaysAfterHangAbort && hangAbortDoesNotDumpMural && dumpedOnUnmount,
+      actual: `kept=${keptAfterHangAbort} muralStays=${muralStaysAfterHangAbort} thenIndependent=${hangAbortDoesNotDumpMural} dumpedOnUnmount=${dumpedOnUnmount} thenHasBootAborted=${meshyThenBlock.includes('bootAborted')}`,
+      expected: 'retainLiveMeshyMural keeps a landed File mural when athleteAborted; then-handler ignores bootAborted; unmount still dumps',
+    },
+    {
       name: 'Meshy File loader lives in VeniceNightCourt.ts, not a separate module',
       passed: meshyLoaderIsInVeniceNightCourt,
       actual: `wired=${meshyLoaderIsInVeniceNightCourt}`,
       expected: 'loadMeshyVeniceCourt / fitMeshyPieceToFootprint / hideCheapVenicePrimitives are all exported from VeniceNightCourt.ts',
     },
     {
-      name: 'The checked-in placeholder GLBs are detected by generator tag + size and never treated as a mural',
+      name: 'Placeholder stubs are detected by generator tag + size and never treated as a mural',
       passed: gitCourtIsPlaceholder && gitSurroundIsPlaceholder && fakeRealIsNotPlaceholder && tinyButRightGeneratorIsStillPlaceholder,
       actual: `courtBytes=${realCourtBytes.byteLength} courtIsPlaceholder=${gitCourtIsPlaceholder} surroundBytes=${realSurroundBytes.byteLength} surroundIsPlaceholder=${gitSurroundIsPlaceholder} fakeRealDetectedAsPlaceholder=${!fakeRealIsNotPlaceholder} tinyRealGeneratorStillCaught=${tinyButRightGeneratorIsStillPlaceholder}`,
-      expected: `checked-in files (<= ${MESHY_PLACEHOLDER_MAX_BYTES}B, generator=${MESHY_PLACEHOLDER_GENERATOR}) are placeholders; a padded synthetic export with a different generator is not; a tiny file is still caught by size alone`,
+      expected: `in-memory stubs (<= ${MESHY_PLACEHOLDER_MAX_BYTES}B, generator=${MESHY_PLACEHOLDER_GENERATOR}) are placeholders; a padded synthetic export with a different generator is not; a tiny file is still caught by size alone`,
     },
     {
-      name: 'Loading ONLY the checked-in placeholder GLBs fails safe: no mural, worldScale 1, authored Venice night stays up',
+      name: 'Loading ONLY placeholder stubs fails safe: no mural, worldScale 1, authored Venice night stays up',
       passed: placeholderFailsSafe && authoredVeniceStaysUp,
       actual: `courtLoaded=${placeholderMeshy.courtLoaded} surroundLoaded=${placeholderMeshy.surroundLoaded} worldScale=${placeholderMeshy.worldScale} authoredVeniceStaysUp=${authoredVeniceStaysUp}`,
       expected: 'placeholder GLBs never attach as a mural; hideCheapVenicePrimitives never runs; sky/ocean/court/fence/bleachers stay enabled — no 2.6x stub quad',
+    },
+    {
+      name: 'Repo ZIP does not ship stub mural GLBs that would overwrite Studio live Meshy',
+      passed: zipDoesNotShipStub,
+      actual: `courtOnDisk=${courtOnDisk} surroundOnDisk=${surroundOnDisk} liveMin=${MESHY_LIVE_MIN_BYTES}`,
+      expected: `public/assets mural paths absent or >= ${MESHY_LIVE_MIN_BYTES}B (Studio live); never a <8KB stub`,
     },
     {
       name: 'The finished dunk boot is not previewSafe — real shaders/rim spot/shadows, not the cheap-preview escape hatch',
@@ -501,6 +571,15 @@ if (nodeProcess?.argv?.[1]?.includes('meshy-venice-court')) {
   const rows = await runMeshyVeniceCourtTests();
   let all = true;
   for (const t of rows) {
+    console.log(`${t.passed ? '✓ PASS' : '✗ FAIL'} | ${t.name}`);
+    console.log(`  Actual: ${t.actual}`);
+    console.log(`  Expected: ${t.expected}\n`);
+    if (!t.passed) all = false;
+  }
+  const { runStudioSafeZipTests } = await import('./studio-safe-zip.test.ts');
+  console.log('=== STUDIO-SAFE ZIP ===\n');
+  const zipRows = runStudioSafeZipTests();
+  for (const t of zipRows) {
     console.log(`${t.passed ? '✓ PASS' : '✗ FAIL'} | ${t.name}`);
     console.log(`  Actual: ${t.actual}`);
     console.log(`  Expected: ${t.expected}\n`);

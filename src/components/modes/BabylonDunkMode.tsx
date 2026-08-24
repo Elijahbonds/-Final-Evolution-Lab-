@@ -5,9 +5,9 @@ import { createBabylonContext } from '../../lib/babylon/BabylonSceneBuilder';
 import { abortMixamoLoad, createMixamoAthlete, MixamoAthlete } from '../../lib/babylon/MixamoAthlete';
 import {
   buildVeniceNightCourt,
-  hideCheapVenicePrimitives,
   loadMeshyVeniceCourt,
   MeshyVeniceCourt,
+  retainLiveMeshyMural,
   VeniceNightCourt,
 } from '../../lib/babylon/VeniceNightCourt';
 import { directedFraming } from '../../lib/babylon/veniceDunkCamera';
@@ -21,12 +21,11 @@ import {
 import { VENICE_RESULT_COPY, caseMissHeadline, caseMissSub } from '../../core/veniceResultCopy';
 import { LOCAL_ASSET_TIMEOUT_MS, withTimeout } from '../../lib/babylon/localAssets';
 import { SoundJuice } from '../../lib/judgeScoring';
+import { EmulatorPadOverlay } from './EmulatorPadOverlay';
 
 interface BabylonDunkModeProps {
   onBack: () => void;
 }
-
-type IdleFrame = 'BOARDWALK' | 'COURTSIDE' | 'RIM';
 
 export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -39,23 +38,23 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
   const hoopPosRef = useRef(new Vector3(0, 3.05, 5.5));
   const pointerDownRef = useRef(false);
   const lastPhaseRef = useRef<DunkPhase>('IDLE');
-  const camPosRef = useRef(new Vector3(2.8, 1.8, -9.2));
-  const camTargetRef = useRef(new Vector3(0, 1.4, 1.5));
+  const camPosRef = useRef(new Vector3(2.6, 1.65, -9.8));
+  const camTargetRef = useRef(new Vector3(0, 1.25, -3.0));
 
   const [phase, setPhase] = useState<DunkPhase>('IDLE');
   const [result, setResult] = useState<ContactOutcome | null>(null);
   const [metrics, setMetrics] = useState<AttemptMetrics | null>(null);
   const [cue, setCue] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [idleFrame, setIdleFrame] = useState<IdleFrame>('BOARDWALK');
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const holdPressedRef = useRef(false);
+  const stickXRef = useRef(0);
 
   const playSfx = useCallback((fn: () => void) => {
     if (soundEnabled) fn();
   }, [soundEnabled]);
   const playSfxRef = useRef(playSfx);
-  const lastPointerXRef = useRef<number | null>(null);
 
   useEffect(() => {
     playSfxRef.current = playSfx;
@@ -71,13 +70,17 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     const { scene, shadowGenerator, camera, engine } = ctx;
     camera.detachControl();
 
-    const dunkCam = new FreeCamera('veniceDunkCam', new Vector3(2.8, 1.8, -9.2), scene);
+    const bootAthletePos = new Vector3(0, 0, -6.2);
+    const bootFrame = directedFraming('IDLE', bootAthletePos, hoopPosRef.current);
+    camPosRef.current.copyFrom(bootFrame.pos);
+    camTargetRef.current.copyFrom(bootFrame.target);
+    const dunkCam = new FreeCamera('veniceDunkCam', bootFrame.pos.clone(), scene);
     dunkCam.minZ = 0.08;
     dunkCam.maxZ = 220;
     dunkCam.fov = 0.88;
     dunkCam.inputs.clear();
     const lookAt = new TransformNode('veniceDunkLook', scene);
-    lookAt.position.copyFrom(camTargetRef.current);
+    lookAt.position.copyFrom(bootFrame.target);
     dunkCam.lockedTarget = lookAt;
     scene.activeCamera = dunkCam;
     dunkCamRef.current = dunkCam;
@@ -91,7 +94,6 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
 
     const killHungLoad = () => {
       bootAborted = true;
-      allowedToDraw = false;
       abortMixamoLoad(scene);
       try {
         athleteRef.current?.dispose();
@@ -114,57 +116,48 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           return;
         }
         courtRef.current = court;
+        // Court is enough to paint a TV. Do not wait on Mixamo `ready`
+        // or a load miss will look like a dead title card.
+        allowedToDraw = true;
 
-        // Meshy court + surround: fetch + File + glTF import on the LIVE
-        // scene, fully resolved (load, attach, hideCheap) BEFORE the
-        // athlete's hang-required timeout below can start, let alone
-        // dispose anything. This load has its own timeout and is
-        // best-effort — any failure keeps the cheap court visible and
-        // must never throw out of boot() or touch athlete state.
-        try {
-          const meshy = await loadMeshyVeniceCourt(scene, {
-            courtWidth: 15.2,
-            courtDepth: 28,
-            surroundWidth: 60,
-            surroundDepth: 60,
-            courtCenterZ: 5.0,
-          });
-          if (disposed || bootAborted || scene.isDisposed) {
-            meshy.dispose();
-          } else {
-            meshyCourtRef.current = meshy;
-            worldScaleRef.current = meshy.worldScale;
-            hideCheapVenicePrimitives(scene, {
-              court: meshy.courtLoaded,
-              surround: meshy.surroundLoaded,
-            });
-            // Hoop, backboard, and post fit the mural's own native scale —
-            // not the other way around. Rim Y stays gameplay-driven
-            // (hoopRestY + rimYOffset below); this only sets visual size
-            // and, for backboard/post, repositions them at the SAME
-            // proportional offset from the hoop so a bigger assembly does
-            // not clip through itself.
-            if ((meshy.courtLoaded || meshy.surroundLoaded) && meshy.worldScale > 1) {
-              const s = meshy.worldScale;
-              const rim = courtRef.current?.rim;
-              const backboard = courtRef.current?.backboard;
-              const post = scene.getMeshByName('venice_post');
-              rim?.scaling.set(s, s, s);
-              if (backboard) {
-                backboard.scaling.set(s, s, s);
-                const offset = backboard.position.subtract(hoop);
-                backboard.position.copyFrom(hoop.add(offset.scale(s)));
-              }
-              if (post) {
-                post.scaling.set(s, s, s);
-                const offset = post.position.subtract(hoop);
-                post.position.copyFrom(hoop.add(offset.scale(s)));
-              }
+        // Meshy starts before the athlete hang-required timeout (source
+        // order + kickoff), but the athlete loads in parallel so BODY is
+        // not a 20s title card behind a mural fetch. hideCheap runs as
+        // soon as a live mural lands. Stubs / misses stay fail-safe.
+        const meshyPromise = loadMeshyVeniceCourt(scene, {
+          courtWidth: 15.2,
+          courtDepth: 28,
+          surroundWidth: 60,
+          surroundDepth: 60,
+          courtCenterZ: 5.0,
+        }).then((meshy) => {
+          // Hang miss must not dump a mural that already landed. Only
+          // unmount / a disposed scene may drop it.
+          if (!retainLiveMeshyMural(scene, meshy, disposed)) {
+            return;
+          }
+          meshyCourtRef.current = meshy;
+          worldScaleRef.current = meshy.worldScale;
+          if ((meshy.courtLoaded || meshy.surroundLoaded) && meshy.worldScale > 1) {
+            const s = meshy.worldScale;
+            const rim = courtRef.current?.rim;
+            const backboard = courtRef.current?.backboard;
+            const post = scene.getMeshByName('venice_post');
+            rim?.scaling.set(s, s, s);
+            if (backboard) {
+              backboard.scaling.set(s, s, s);
+              const offset = backboard.position.subtract(hoop);
+              backboard.position.copyFrom(hoop.add(offset.scale(s)));
+            }
+            if (post) {
+              post.scaling.set(s, s, s);
+              const offset = post.position.subtract(hoop);
+              post.position.copyFrom(hoop.add(offset.scale(s)));
             }
           }
-        } catch {
+        }).catch(() => {
           /* Meshy mural is best-effort; cheap procedural court stays up */
-        }
+        });
 
         if (disposed || bootAborted || scene.isDisposed) {
           return;
@@ -205,23 +198,19 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
               abortMixamoLoad(scene);
               return;
             }
-            allowedToDraw = true;
             setReady(true);
           })(),
           LOCAL_ASSET_TIMEOUT_MS + 4000,
           'Mixamo dunker',
           killHungLoad
         );
+        await meshyPromise;
       } catch (err) {
-        allowedToDraw = false;
+        // Athlete miss: keep the court rendering. Never stopRenderLoop
+        // on a load miss — chop here is a dead title card.
         killHungLoad();
         if (disposed) return;
         setLoadError(err instanceof Error ? err.message : 'Mixamo dunker failed to load');
-        try {
-          engine.stopRenderLoop();
-        } catch {
-          /* keep the iframe up if the engine is already gone */
-        }
       }
     };
     void boot();
@@ -234,7 +223,26 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       const athlete = athleteRef.current;
       const court = courtRef.current;
       const cam = dunkCamRef.current;
-      if (!athlete || !court || !cam) return;
+      if (!court || !cam) return;
+
+      // Stick + hold still drive the loop while Mixamo is late.
+      if (!athlete) {
+        court.tick(performance.now() / 1000);
+        const idlePos = new Vector3(0, 0, -6.2);
+        const framing = directedFraming(
+          'IDLE',
+          idlePos,
+          hoopPosRef.current,
+          framePos,
+          frameTarget,
+          worldScaleRef.current
+        );
+        Vector3.LerpToRef(camPosRef.current, framing.pos, 0.08, camPosRef.current);
+        Vector3.LerpToRef(camTargetRef.current, framing.target, 0.08, camTargetRef.current);
+        cam.position.copyFrom(camPosRef.current);
+        lookAt.position.copyFrom(camTargetRef.current);
+        return;
+      }
 
       const snap = attempt.tick(dt);
       court.tick(performance.now() / 1000);
@@ -258,8 +266,21 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
           athlete.playIdle();
           athlete.root.rotation.y = 0;
           court.reactCrowd('sit');
+          // Continual: hold still down after land → next run, no menu.
+          if (holdPressedRef.current) {
+            setResult(null);
+            setMetrics(null);
+            setCue(null);
+            playSfxRef.current(() => SoundJuice.playCharge());
+            attempt.startRunway();
+          }
         }
-        if (snap.phase === 'RUNWAY') athlete.playRun(1.05);
+        if (snap.phase === 'RUNWAY') {
+          setResult(null);
+          setMetrics(null);
+          setCue(null);
+          athlete.playRun(1.05);
+        }
         if (snap.phase === 'GATHER') {
           athlete.playRun(0.72);
           court.reactCrowd('watch', 0.7);
@@ -293,9 +314,18 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
         athlete.playSlam(snap.style, snap.phase === 'CONTACT' ? athlete.hangContactT01 : hangT);
         athlete.root.rotation.y = Math.PI;
       }
-      if (snap.phase === 'LAND' || snap.phase === 'BLOWN') {
+      if (snap.phase === 'LAND') {
         athlete.root.rotation.y *= 0.85;
         athlete.root.rotation.x *= 0.7;
+        court.reactCrowd('sit');
+      }
+      if (snap.phase === 'BLOWN') {
+        athlete.root.rotation.y *= 0.85;
+        athlete.root.rotation.x *= 0.7;
+      }
+
+      if ((snap.phase === 'TAKEOFF' || snap.phase === 'HANG') && (holdPressedRef.current || stickXRef.current !== 0)) {
+        attempt.inputAir(stickXRef.current, true);
       }
 
       const framing = directedFraming(
@@ -317,7 +347,6 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     });
 
     let drawFails = 0;
-    let lastDraw = 0;
     engine.onContextLostObservable.add(() => {
       disposed = true;
       try {
@@ -330,9 +359,6 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     engine.runRenderLoop(() => {
       try {
         if (disposed || engine.isDisposed || scene.isDisposed || !allowedToDraw) return;
-        const now = performance.now();
-        if (now - lastDraw < 1000 / 24) return;
-        lastDraw = now;
         scene.render();
         drawFails = 0;
       } catch {
@@ -364,164 +390,98 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
     };
   }, []);
 
-  const applyIdleFrame = (mode: IdleFrame) => {
-    setIdleFrame(mode);
-    if (phase !== 'IDLE') return;
-    if (mode === 'BOARDWALK') {
-      camPosRef.current = new Vector3(2.8, 1.8, -9.2);
-      camTargetRef.current = new Vector3(0, 1.4, 1.5);
-    } else if (mode === 'COURTSIDE') {
-      camPosRef.current = new Vector3(8.4, 1.7, 1.2);
-      camTargetRef.current = new Vector3(0, 1.5, 2.4);
-    } else {
-      camPosRef.current = new Vector3(0.2, 3.4, 8.4);
-      camTargetRef.current = hoopPosRef.current.clone();
-    }
-  };
-
-  const handlePointerDown = (event?: { clientX?: number }) => {
+  const handleHoldDown = () => {
+    holdPressedRef.current = true;
     pointerDownRef.current = true;
-    lastPointerXRef.current = event?.clientX ?? null;
     const attempt = attemptRef.current;
     if (attempt.phase === 'IDLE') {
       setResult(null);
       setMetrics(null);
       setCue(null);
       playSfx(() => SoundJuice.playCharge());
-      attempt.startRunway();
-      return;
     }
-    if (attempt.phase === 'GATHER') {
-      attempt.commitPlant();
-      return;
-    }
-    if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') {
-      const x = event?.clientX;
-      const canvas = canvasRef.current;
-      if (x != null && canvas) {
-        const rect = canvas.getBoundingClientRect();
-        const nx = ((x - rect.left) / Math.max(1, rect.width)) * 2 - 1;
-        attempt.inputAir(Math.max(-1, Math.min(1, nx)), true);
-      } else {
-        attempt.inputAir(0, true);
-      }
-    }
+    attempt.holdDown();
   };
 
-  const handlePointerUp = () => {
-    if (!pointerDownRef.current) return;
+  const handleHoldUp = () => {
+    if (!holdPressedRef.current && !pointerDownRef.current) return;
+    holdPressedRef.current = false;
     pointerDownRef.current = false;
-    lastPointerXRef.current = null;
+    attemptRef.current.holdUp();
+  };
+
+  const handlePlantDown = () => {
     const attempt = attemptRef.current;
-    if (attempt.phase === 'RUNWAY') {
-      attempt.releaseToGather();
-      return;
-    }
-    if (attempt.phase === 'PLANT') {
-      attempt.releaseTakeoff();
+    if (attempt.phase === 'IDLE' || attempt.phase === 'RUNWAY' || attempt.phase === 'GATHER') {
+      if (attempt.phase === 'IDLE') {
+        setResult(null);
+        setMetrics(null);
+        setCue(null);
+        attempt.startRunway();
+        attempt.releaseToGather();
+      } else if (attempt.phase === 'RUNWAY') {
+        attempt.releaseToGather();
+      }
+      attempt.commitPlant();
     }
   };
 
-  const handlePointerMove = (event: { clientX: number }) => {
+  const handlePlantUp = () => {
+    /* tap/commit only — release does not add a fourth action */
+  };
+
+  const handleStick = (x: number, y: number) => {
+    void y;
+    stickXRef.current = x;
     const attempt = attemptRef.current;
-    if (attempt.phase !== 'TAKEOFF' && attempt.phase !== 'HANG') return;
-    if (lastPointerXRef.current === null) {
-      lastPointerXRef.current = event.clientX;
-      attempt.inputAir(0);
-      return;
+    if (attempt.phase === 'TAKEOFF' || attempt.phase === 'HANG') {
+      attempt.inputAir(x, true);
     }
-    const dx = (event.clientX - lastPointerXRef.current) / 140;
-    lastPointerXRef.current = event.clientX;
-    attempt.inputAir(dx);
   };
 
   const eastbay = EASTBAY_MASTER_STANDARD;
   const showCase = result !== null && metrics !== null;
+  const plantedGct =
+    metrics?.gctMs != null &&
+    metrics.gctMs > 0 &&
+    result?.missReason !== 'EARLY' &&
+    result?.missReason !== 'LATE';
   const copy = VENICE_RESULT_COPY;
 
-  const clearCase = () => {
-    setResult(null);
-    setMetrics(null);
-    setCue(null);
-  };
-
-  const nextAttempt = () => {
-    clearCase();
-    attemptRef.current.reset();
-  };
-
-  const instantRetry = () => {
-    clearCase();
-    attemptRef.current.reset();
-    playSfx(() => SoundJuice.playCharge());
-    attemptRef.current.startRunway();
-  };
-
   return (
-    <div className="unreal-canvas relative w-full h-[720px] rounded-3xl overflow-hidden flex flex-col justify-between shadow-2xl">
+    <div className="fixed inset-0 z-[4000] w-full h-full bg-black overflow-hidden">
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full touch-none z-0"
-        onPointerDown={(e) => handlePointerDown(e)}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
       />
 
-      <div className="relative z-10 p-6 flex items-start justify-between pointer-events-none">
-        <div className="flex items-center gap-3">
+      <div className="absolute top-3 left-3 right-3 z-20 flex items-start justify-between pointer-events-none">
+        <div className="flex items-center gap-2">
           <button
             onClick={onBack}
-            className="p-3 rounded-2xl bg-black/60 border border-white/10 text-white hover:border-[#00F2FF] transition-colors pointer-events-auto cursor-pointer"
+            className="p-2.5 rounded-full bg-black/45 border border-white/20 text-white pointer-events-auto cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-[#00F2FF]/20 text-[#00F2FF] border border-[#00F2FF]/40 font-bold uppercase">
-                VENICE NIGHT COURT
-              </span>
-              <span className="text-xs font-mono text-zinc-400">• 3.05M REGULATION</span>
-            </div>
-            <h1 className="text-xl sm:text-2xl font-orbitron font-black text-white uppercase tracking-tight mt-0.5">
-              SLAM DUNK CONTEST
-            </h1>
-          </div>
         </div>
-
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="bg-black/60 border border-white/10 p-1 rounded-2xl flex items-center gap-1 backdrop-blur-md">
-            {(['BOARDWALK', 'COURTSIDE', 'RIM'] as const).map((cam) => (
-              <button
-                key={cam}
-                disabled={phase !== 'IDLE'}
-                onClick={() => applyIdleFrame(cam)}
-                className={`px-3 py-1.5 rounded-xl font-mono text-[10px] uppercase font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                  idleFrame === cam ? 'bg-[#00F2FF] text-black' : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                {cam}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-3 rounded-2xl bg-black/60 border border-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-          >
-            {soundEnabled ? <Volume2 className="w-4 h-4 text-[#00F2FF]" /> : <VolumeX className="w-4 h-4" />}
-          </button>
-        </div>
+        <button
+          onClick={() => setSoundEnabled(!soundEnabled)}
+          className="p-2.5 rounded-full bg-black/45 border border-white/20 text-zinc-300 pointer-events-auto cursor-pointer"
+        >
+          {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+        </button>
       </div>
 
       {!ready && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-          <span className="text-xs font-mono text-[#00F2FF] uppercase tracking-widest">
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <span className="text-[10px] font-mono text-white/50 uppercase tracking-widest">
             {loadError ?? 'Loading Mixamo dunker…'}
           </span>
         </div>
       )}
 
       {cue && phase === 'IDLE' && !showCase && (
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
           <span className="text-[10px] font-mono font-bold text-red-400 uppercase tracking-widest">
             {cue}
           </span>
@@ -529,8 +489,8 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
       )}
 
       {showCase && (
-        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 w-[min(92%,36rem)]">
-          <div className="px-4 py-3 rounded-2xl bg-black/70 border border-[#00F2FF]/30 backdrop-blur-md">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 w-[min(70%,20rem)] pointer-events-none">
+          <div className="px-3 py-2 rounded-xl bg-black/55 border border-white/15">
             <div className="mb-1">
               <div className={`text-sm font-orbitron font-black ${result?.isMake ? 'text-[#00FF9D]' : 'text-red-400'}`}>
                 {result?.isMake ? copy.makeHeadline : caseMissHeadline(result?.missReason ?? null)}
@@ -539,9 +499,10 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
                 {result?.isMake ? copy.makeSub : caseMissSub(result?.missReason ?? null)}
               </div>
             </div>
-            <div className="text-[9px] font-mono text-zinc-400 mt-2">
+            <div className="text-[9px] font-mono text-zinc-400 mt-1">
               {copy.eastbayName} · {copy.eastbayLine} · {copy.eastbayClass} · {copy.eastbayRole}
             </div>
+            {plantedGct && (
             <div className="grid grid-cols-4 gap-2 text-center mt-2">
               <div>
                 <div className="text-[8px] font-mono text-zinc-500">GCT</div>
@@ -564,74 +525,18 @@ export const BabylonDunkMode: React.FC<BabylonDunkModeProps> = ({ onBack }) => {
                 <div className="text-[8px] font-mono text-zinc-600">{eastbay.trunkLeanDeg}°</div>
               </div>
             </div>
-            <div className="flex gap-2 mt-3">
-              <button
-                type="button"
-                onClick={nextAttempt}
-                className="flex-1 px-2 py-2 rounded-xl bg-white/10 border border-white/20 text-[10px] font-mono font-bold text-white hover:bg-white/20"
-              >
-                {copy.nextAttempt}
-              </button>
-              <button
-                type="button"
-                onClick={instantRetry}
-                className="flex-1 px-2 py-2 rounded-xl bg-[#00F2FF] text-black text-[10px] font-mono font-bold hover:bg-[#00F2FF]/90"
-              >
-                {copy.instantRetry}
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
 
-      {phase === 'IDLE' || phase === 'RUNWAY' || phase === 'GATHER' || phase === 'PLANT' ? (
-        <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
-          <button
-            aria-label="hold"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              handlePointerDown(e);
-            }}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={() => {
-              if (pointerDownRef.current) handlePointerUp();
-            }}
-            className="w-[4.5rem] h-[4.5rem] rounded-full bg-white/10 border-2 border-white/35 shadow-[0_0_24px_rgba(255,255,255,0.12)] active:scale-95 active:bg-white/20"
-          />
-        </div>
-      ) : null}
-
-      {(phase === 'TAKEOFF' || phase === 'HANG') && (
-        <div className="absolute bottom-7 left-1/2 -translate-x-1/2 z-20 w-[min(92%,28rem)] pointer-events-auto">
-          <div
-            className="flex h-16 rounded-2xl overflow-hidden border-2 border-white/35 bg-black/45"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              const rect = e.currentTarget.getBoundingClientRect();
-              const nx = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
-              attemptRef.current.inputAir(Math.max(-1, Math.min(1, nx)), true);
-              pointerDownRef.current = true;
-              lastPointerXRef.current = e.clientX;
-            }}
-            onPointerMove={(e) => {
-              if (!pointerDownRef.current) return;
-              const rect = e.currentTarget.getBoundingClientRect();
-              const nx = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
-              attemptRef.current.inputAir(Math.max(-1, Math.min(1, nx)), true);
-            }}
-            onPointerUp={() => {
-              pointerDownRef.current = false;
-              lastPointerXRef.current = null;
-            }}
-          >
-            <div className="flex-1 bg-[#00F2FF]/10" />
-            <div className="w-px bg-white/25" />
-            <div className="flex-[1.15] bg-white/10" />
-            <div className="w-px bg-white/25" />
-            <div className="flex-1 bg-[#00F2FF]/10" />
-          </div>
-        </div>
-      )}
+      <EmulatorPadOverlay
+        onHoldDown={handleHoldDown}
+        onHoldUp={handleHoldUp}
+        onPlantDown={handlePlantDown}
+        onPlantUp={handlePlantUp}
+        onSteer={handleStick}
+      />
     </div>
   );
 };

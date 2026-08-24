@@ -759,11 +759,160 @@ export function runVeniceDunkLoopTests(): TestResult[] {
       !copySrc.includes("'Gather was early.'") &&
       modeSrc.includes('caseMissHeadline') &&
       modeSrc.includes('setResult(snap.outcome)');
+    const appSrc = (() => {
+      try {
+        return readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+      } catch {
+        return '';
+      }
+    })();
+    const overlaySrc = (() => {
+      try {
+        return readFileSync(new URL('../src/components/modes/EmulatorPadOverlay.tsx', import.meta.url), 'utf8');
+      } catch {
+        return '';
+      }
+    })();
+    const mixamoFailIdx = modeSrc.indexOf('Mixamo dunker failed to load');
+    const mixamoFailWindow = mixamoFailIdx > -1 ? modeSrc.slice(mixamoFailIdx, mixamoFailIdx + 280) : '';
+    const courtAssignIdx = modeSrc.indexOf('courtRef.current = court');
+    const firstAllowedIdx = modeSrc.indexOf('allowedToDraw = true');
+    const mixamoTimeoutIdx = modeSrc.indexOf("'Mixamo dunker'");
+    const overlayAlwaysOn =
+      modeSrc.includes('<EmulatorPadOverlay') &&
+      !modeSrc.includes('{ready &&') &&
+      !modeSrc.includes('ready ?') &&
+      !/ready\s*&&[\s\S]{0,80}EmulatorPadOverlay/.test(modeSrc) &&
+      !/phase === 'IDLE'[\s\S]{0,120}aria-label="hold"/.test(modeSrc);
+    const emulatorLook =
+      overlaySrc.includes('aria-label="joystick"') &&
+      overlaySrc.includes('ariaLabel="hold"') &&
+      overlaySrc.includes('ariaLabel="plant"') &&
+      !overlaySrc.includes('ariaLabel="dunk"') &&
+      overlaySrc.includes('emulator-pad') &&
+      overlaySrc.includes('emulator-abxy') &&
+      overlaySrc.includes('L1') &&
+      overlaySrc.includes('L2') &&
+      overlaySrc.includes('R1') &&
+      overlaySrc.includes('R2') &&
+      !overlaySrc.includes('>HOLD<') &&
+      !overlaySrc.includes('>PLANT<') &&
+      !overlaySrc.includes('>DUNK<') &&
+      !overlaySrc.includes('HOLD ·') &&
+      !overlaySrc.includes('onDunkDown');
+    const fullBleedHub =
+      appSrc.includes('dunkLive') &&
+      appSrc.includes("arenaMode === 'babylon_dunk'") &&
+      appSrc.includes('{!dunkLive &&') &&
+      appSrc.includes('fixed inset-0') &&
+      modeSrc.includes('z-[4000]') &&
+      !modeSrc.includes('h-[720px]') &&
+      !modeSrc.includes('unreal-canvas') &&
+      !modeSrc.includes('SOVEREIGN PORTAL') &&
+      !appSrc.includes('HUD/ARENA');
+    const nextPaintCam =
+      modeSrc.includes("directedFraming('IDLE'") &&
+      !modeSrc.includes('2.8, 1.8, -9.2') &&
+      modeSrc.includes('meshyPromise') &&
+      modeSrc.includes('playSlam');
+    const hangSafeOverlay =
+      overlaySrc.includes('emulator-pad-left') &&
+      overlaySrc.includes('emulator-pad-right');
+    const noChopOnMiss =
+      !mixamoFailWindow.includes('stopRenderLoop') &&
+      firstAllowedIdx > -1 &&
+      courtAssignIdx > -1 &&
+      firstAllowedIdx > courtAssignIdx &&
+      (mixamoTimeoutIdx < 0 || firstAllowedIdx < mixamoTimeoutIdx) &&
+      !modeSrc.includes('1000 / 24');
+    const caseDoesNotBuryPad =
+      modeSrc.includes('z-10') &&
+      modeSrc.includes('pointer-events-none') &&
+      modeSrc.includes('plantedGct') &&
+      !modeSrc.includes('bottom-24') &&
+      overlaySrc.includes('zIndex: 40');
+    const overlayAfterCase =
+      modeSrc.indexOf('showCase') > -1 &&
+      modeSrc.indexOf('<EmulatorPadOverlay') > modeSrc.indexOf('showCase') &&
+      !modeSrc.includes('nextAttempt') &&
+      !modeSrc.includes('instantRetry') &&
+      !modeSrc.includes('keydown') &&
+      !modeSrc.includes('onDunkDown') &&
+      modeSrc.includes('holdDown') &&
+      modeSrc.includes('holdUp') &&
+      modeSrc.includes('pointer-events-none');
+    const overlayPassed = overlayAlwaysOn && emulatorLook && fullBleedHub && noChopOnMiss && nextPaintCam && hangSafeOverlay && caseDoesNotBuryPad && overlayAfterCase;
+    results.push({
+      name: 'Console overlay: full-bleed dunk, DualShock faces+shoulders always on canvas, no CASE retry menu, no stopRenderLoop on Mixamo miss',
+      passed: overlayPassed,
+      actual: `alwaysOn=${overlayAlwaysOn} emulator=${emulatorLook} fullBleed=${fullBleedHub} noChop=${noChopOnMiss} cam=${nextPaintCam} hangSafe=${hangSafeOverlay} caseClear=${caseDoesNotBuryPad} afterCase=${overlayAfterCase} failWindowHasStop=${mixamoFailWindow.includes('stopRenderLoop')}`,
+      expected: 'EmulatorPadOverlay always mounted after CASE proof; stick left, ABXY+shoulders right; no HOLD/PLANT/DUNK chrome; no keydown; no NEXT/RETRY buttons; dunkLive hides portal',
+    });
+
     results.push({
       name: 'Miss routing: locked lines only; plant headline on LATE/EARLY/MUSHY; CASE not skipped',
       passed: routed,
       actual: `late=${late.outcome?.missReason}/${caseMissHeadline('LATE')}/${caseMissSub('LATE')} early=${mash.outcome?.missReason}/${caseMissSub('EARLY')} mushy=${mushy.outcome?.missReason}/${caseMissSub('MUSHY_PLANT')} air=${air.outcome?.missReason}/${caseMissHeadline('AIR')} short=${caseMissHeadline('SHORT')}/${caseMissSub('SHORT')} rim=${rim.outcome?.missReason}/${caseMissHeadline('RIM_OUT')}`,
       expected: 'plant headline on LATE/EARLY/MUSHY only; SHORT uses AIR pair; locked lines unchanged; BLOWN sets CASE',
+    });
+  }
+
+  {
+    const hold = new VeniceDunkAttempt();
+    hold.holdDown();
+    let sawHang = false;
+    let rose = false;
+    let lastY = Number.POSITIVE_INFINITY;
+    let apex = 0;
+    for (let i = 0; i < 240; i++) {
+      if (hold.phase === 'TAKEOFF' || hold.phase === 'HANG') hold.inputAir(0, true);
+      hold.tick(1 / 60);
+      if (hold.phase === 'HANG') {
+        const y = hold.rootY();
+        if (!sawHang) {
+          sawHang = true;
+          apex = hold.takeoffApexY;
+          lastY = y;
+        } else if (y > lastY + 1e-6) {
+          rose = true;
+        } else {
+          lastY = y;
+        }
+      }
+      if (hold.outcome) break;
+    }
+    const tap = new VeniceDunkAttempt();
+    tap.holdDown();
+    tap.holdUp();
+    for (let i = 0; i < 24; i++) {
+      tap.tick(1 / 60);
+      if (tap.outcome) break;
+    }
+    const holdGct = hold.plant?.gctMs ?? hold.metrics?.gctMs ?? null;
+    const tapPlant = tap.plant;
+    const tapGct = tap.metrics?.gctMs ?? tap.plant?.gctMs ?? null;
+    const loopSrc = readFileSync(new URL('../src/core/VeniceDunkLoop.ts', import.meta.url), 'utf8');
+    const modeSrcGate = readFileSync(new URL('../src/components/modes/BabylonDunkMode.tsx', import.meta.url), 'utf8');
+    const passed =
+      sawHang &&
+      !rose &&
+      apex > 0.4 &&
+      hold.hangElapsed > 0 &&
+      holdGct != null &&
+      holdGct > 0 &&
+      hold.gatherMiss !== 'LATE' &&
+      tap.outcome?.missReason === 'EARLY' &&
+      tap.outcome?.missReason !== hold.outcome?.missReason &&
+      tapPlant === null &&
+      tapGct === null &&
+      !loopSrc.includes('gctMs: 0') &&
+      modeSrcGate.includes('plantedGct') &&
+      modeSrcGate.includes('metrics.gctMs > 0');
+    results.push({
+      name: 'QA: one hold leaves ground and hangs with real GCT; one tap blows gather on a different card',
+      passed,
+      actual: `hang=${sawHang} hangT=${hold.hangElapsed.toFixed(3)} rose=${rose} holdGct=${holdGct} holdReason=${hold.outcome?.missReason} tapReason=${tap.outcome?.missReason} tapGct=${tapGct} tapPlant=${tapPlant} dummyZero=${loopSrc.includes('gctMs: 0')}`,
+      expected: 'hold → hang from apex, GCT > 0; tap → EARLY, no plant, metrics.gctMs null (not dummy 0)',
     });
   }
 

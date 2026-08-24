@@ -8,7 +8,7 @@
  * Swap these two files in place once the real Meshy exports land; the
  * loader (fetch + File + glTF SceneLoader) and filenames do not change.
  */
-import { writeFileSync } from 'node:fs';
+import { existsSync, statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -108,8 +108,20 @@ function buildQuadGlb({ halfX, halfZ, color, name }) {
 const court = buildQuadGlb({ halfX: 20, halfZ: 20 * (28 / 15.2), color: [0.05, 0.3, 0.62, 1.0], name: 'MeshyVeniceCourt' });
 const surround = buildQuadGlb({ halfX: 60, halfZ: 60, color: [0.42, 0.38, 0.3, 1.0], name: 'MeshyVeniceSurround' });
 
-writeFileSync(join(outDir, 'venice-blue-court.glb'), court);
-writeFileSync(join(outDir, 'venice-court-surround.glb'), surround);
-
-console.log(`wrote ${court.length}B -> venice-blue-court.glb`);
-console.log(`wrote ${surround.length}B -> venice-court-surround.glb`);
+const LIVE_MIN = 1_500_000;
+const forceStub = process.argv.includes('--force-stub');
+function writeUnlessLive(name, bytes) {
+  const dest = join(outDir, name);
+  if (!forceStub) {
+    console.error(`refusing to write ${name} into public/assets (Studio live mural must not be overwritten)`);
+    return;
+  }
+  if (existsSync(dest) && statSync(dest).size >= LIVE_MIN) {
+    console.error(`refusing to overwrite live Meshy mural ${dest} (${statSync(dest).size} B)`);
+    return;
+  }
+  writeFileSync(dest, bytes);
+  console.log(`wrote ${bytes.length}B -> ${name}`);
+}
+writeUnlessLive('venice-blue-court.glb', court);
+writeUnlessLive('venice-court-surround.glb', surround);

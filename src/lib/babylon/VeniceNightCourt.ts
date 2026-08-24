@@ -4,9 +4,10 @@
  *
  * Also owns the Meshy Venice court + surround GLB loader (fetch + File +
  * glTF SceneLoader). That import runs on the live scene independently of
- * the Mixamo athlete's hang-required load/abort — it must resolve (or
- * fail-safe) before that timeout can even start, and never disposes the
- * scene mid-import. See loadMeshyVeniceCourt / hideCheapVenicePrimitives.
+ * the Mixamo athlete's hang-required load/abort — a hang miss must not
+ * dump a mural that already landed. Fail-safe on a Meshy miss. Never
+ * disposes the scene mid-import. See loadMeshyVeniceCourt /
+ * retainLiveMeshyMural / hideCheapVenicePrimitives.
  */
 
 import '@babylonjs/loaders/glTF';
@@ -31,7 +32,7 @@ import {
   TransformNode,
 } from '@babylonjs/core';
 import { createMixamoAthlete, MixamoAthlete, CrowdReact } from './MixamoAthlete';
-import { fetchLocalBytes, localAssetUrl, withTimeout } from './localAssets';
+import { fetchLocalAssetBytes, withTimeout } from './localAssets';
 
 export interface VeniceNightCourt {
   rim: Mesh;
@@ -75,13 +76,14 @@ export interface MeshyVeniceCourt {
 
 /**
  * `asset.generator` tag the repo's own placeholder-fixture writer
- * (scripts/gen-meshy-placeholder-glb.mjs) stamps onto the checked-in
- * venice-blue-court.glb / venice-court-surround.glb stubs. Git never holds
- * real Meshy bytes — the live mural only exists inside Studio — so this
- * string is the one reliable signature that says "this is the stub, not an
- * export a human uploaded".
+ * (scripts/gen-meshy-placeholder-glb.mjs) stamps onto in-memory stubs.
+ * Git never holds Meshy mural bytes — live files exist only in Studio
+ * (~3.0MB court / ~1.8MB surround) — so this string is the signature
+ * that says "this is a stub, not an export a human uploaded".
  */
 export const MESHY_PLACEHOLDER_GENERATOR = 'FEL-meshy-placeholder';
+/** Studio live mural is millions of bytes. Anything below this is not PLACE. */
+export const MESHY_LIVE_MIN_BYTES = 1_500_000;
 
 /**
  * A real Meshy export ships full geometry + textures; the checked-in stubs
@@ -127,8 +129,8 @@ export function isPlaceholderMeshyGlb(bytes: ArrayBuffer): boolean {
 }
 
 async function loadMeshyFile(filename: string): Promise<File> {
-  const bytes = await fetchLocalBytes(localAssetUrl(filename), MESHY_LOAD_TIMEOUT_MS);
-  return new File([bytes], filename);
+  const bytes = await fetchLocalAssetBytes(filename, MESHY_LOAD_TIMEOUT_MS);
+  return new File([bytes], filename, { type: 'model/gltf-binary' });
 }
 
 /**
@@ -162,6 +164,8 @@ async function attachMeshyPiece(
   if (isPlaceholderMeshyGlb(bytes)) {
     throw new Error(`${rootName} is the FEL-meshy-placeholder stub, not a real Meshy export`);
   }
+  // Fresh File after the sniff so SceneLoader never sees a consumed blob.
+  const glb = new File([bytes], filename, { type: 'model/gltf-binary' });
 
   let activePlugin: { dispose?: () => void } | undefined;
   const pluginObs = SceneLoader.OnPluginActivatedObservable.add((plugin) => {
@@ -184,7 +188,7 @@ async function attachMeshyPiece(
   let container: AssetContainer;
   try {
     container = await withTimeout(
-      SceneLoader.LoadAssetContainerAsync('', file, scene),
+      SceneLoader.LoadAssetContainerAsync('', glb, scene),
       MESHY_LOAD_TIMEOUT_MS,
       rootName,
       disposeLate
@@ -376,6 +380,27 @@ export function hideCheapVenicePrimitives(
 ): void {
   if (loaded.court) hideCheapCourtMeshes(scene);
   if (loaded.surround) hideCheapSurroundMeshes(scene);
+}
+
+/**
+ * Keep a landed Meshy mural on the live scene. Only unmount or a disposed
+ * scene may dump it — athlete hang abort is not a reason to dispose.
+ * Returns true when the mural stays attached.
+ */
+export function retainLiveMeshyMural(
+  scene: Scene,
+  meshy: MeshyVeniceCourt,
+  unmounted: boolean
+): boolean {
+  if (unmounted || scene.isDisposed) {
+    meshy.dispose();
+    return false;
+  }
+  hideCheapVenicePrimitives(scene, {
+    court: meshy.courtLoaded,
+    surround: meshy.surroundLoaded,
+  });
+  return true;
 }
 
 function registerVeniceShaders(): void {

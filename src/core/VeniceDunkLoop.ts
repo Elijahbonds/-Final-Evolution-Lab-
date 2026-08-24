@@ -37,7 +37,8 @@ export interface PlantSample {
 }
 
 export interface AttemptMetrics {
-  gctMs: number;
+  /** Measured plant only. Null when gather blew — never a dummy 0. */
+  gctMs: number | null;
   verticalIn: number;
   elasticRecoilBw: number;
   trunkLeanDeg: number;
@@ -124,11 +125,12 @@ export function metricsFromPlant(
   standingY: number = STANDING_ROOT_Y
 ): AttemptMetrics {
   const verticalIn = Math.max(0, apexY - standingY) * 39.3701;
-  const gctSec = Math.max(0.08, plant.gctMs / 1000);
+  const measuredGct = plant.gctMs > 0;
+  const gctSec = Math.max(0.08, (measuredGct ? plant.gctMs : 80) / 1000);
   const elasticRecoilBw =
     plant.compression01 * (1 / gctSec) * 0.55 + plant.approachSpeed * 0.12;
   return {
-    gctMs: Math.round(plant.gctMs),
+    gctMs: measuredGct ? Math.round(plant.gctMs) : null,
     verticalIn: round1(verticalIn),
     elasticRecoilBw: round1(elasticRecoilBw),
     trunkLeanDeg: round1(plant.trunkLeanDeg),
@@ -243,6 +245,8 @@ export class VeniceDunkAttempt {
   gatherBlown = false;
   gatherMiss: GatherCommit | null = null;
   plantHolding = false;
+  /** Face-button hold. One hold runs into plant+hang; a tap blows gather. */
+  held = false;
   airFinish: AirFinish = 'NONE';
   airHeld = false;
   airSteer = 0;
@@ -288,6 +292,7 @@ export class VeniceDunkAttempt {
     this.gatherBlown = false;
     this.gatherMiss = null;
     this.plantHolding = false;
+    this.held = false;
     this.airFinish = 'NONE';
     this.airHeld = false;
     this.airSteer = 0;
@@ -308,8 +313,50 @@ export class VeniceDunkAttempt {
 
   startRunway(): void {
     if (this.phase !== 'IDLE') return;
+    const keepHeld = this.held;
     this.reset();
+    this.held = keepHeld;
     this.phase = 'RUNWAY';
+  }
+
+  /** Hold A: run, auto-plant in the window, clock GCT, release to hang. */
+  holdDown(): void {
+    this.held = true;
+    if (this.phase === 'IDLE') this.startRunway();
+    else if (this.phase === 'GATHER') this.commitPlant();
+    else if (this.phase === 'TAKEOFF' || this.phase === 'HANG') this.inputAir(this.airSteer, true);
+  }
+
+  /** Release: tap-before-window blows gather; release in plant leaves the ground. */
+  holdUp(): void {
+    if (!this.held) return;
+    this.held = false;
+    if (this.phase === 'RUNWAY') {
+      this.releaseToGather();
+      this.commitPlant();
+      return;
+    }
+    if (this.phase === 'GATHER') {
+      this.commitPlant();
+      return;
+    }
+    if (this.phase === 'PLANT') this.releaseTakeoff();
+  }
+
+  private autoPlantIfHeld(): void {
+    if (!this.held) return;
+    if (this.phase === 'IDLE') {
+      this.startRunway();
+      return;
+    }
+    const zone = gatherWindowState(this.posZ, this.plantMarkZ);
+    if (zone !== 'WINDOW') return;
+    if (this.phase === 'RUNWAY') {
+      this.releaseToGather();
+      this.commitPlant();
+    } else if (this.phase === 'GATHER') {
+      this.commitPlant();
+    }
   }
 
   /** Release starts gather. Does not compute make/miss and does not plant. */
@@ -466,6 +513,7 @@ export class VeniceDunkAttempt {
         break;
     }
 
+    this.autoPlantIfHeld();
     return this.snapshot();
   }
 
@@ -529,21 +577,18 @@ export class VeniceDunkAttempt {
   }
 
   private resolveGatherMiss(): void {
-    const plant = this.plant ?? {
-      gctMs: 0,
-      trunkLeanDeg: 0,
-      compression01: 0,
-      approachSpeed: this.approachSpeed,
+    this.plant = null;
+    this.outcome = {
+      isMake: false,
+      missReason: this.gatherMiss === 'LATE' ? 'LATE' : 'EARLY',
+      rimDeflectionM: 0,
     };
-    this.outcome = decideContact(
-      this.gatherBlown,
-      plant,
-      this.takeoffApexY,
-      this.rimY,
-      'NONE',
-      this.gatherMiss
-    );
-    this.metrics = metricsFromPlant(plant, this.takeoffApexY, STANDING_ROOT_Y);
+    this.metrics = {
+      gctMs: null,
+      verticalIn: 0,
+      elasticRecoilBw: 0,
+      trunkLeanDeg: 0,
+    };
   }
 
   private resolveContact(): void {
